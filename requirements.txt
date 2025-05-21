@@ -4,6 +4,7 @@ python-telegram-bot
 requests
 PyYAML
 sseclient
-python-telegram-bot==13.7
 requests==2.31.0
 sseclient-py==1.7.2
+python-telegram-bot==20.6
+aiohttp==3.9.3
