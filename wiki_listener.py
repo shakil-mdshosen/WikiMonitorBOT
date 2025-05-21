@@ -18,10 +18,6 @@ def stream_changes(callback: Callable[[int, Dict[str, Any]], None],
                   monitored_groups: Dict[int, GroupConfig]) -> None:
     """
     Continuously listens to Wikimedia event stream and forwards relevant events to registered groups.
-    
-    Args:
-        callback: Function to call when a relevant event is found (receives group_id and change data)
-        monitored_groups: Dictionary mapping group IDs to their configuration
     """
     print("🔄 Starting Wikimedia EventStream listener...")
     
@@ -36,7 +32,8 @@ def stream_changes(callback: Callable[[int, Dict[str, Any]], None],
             )
             response.raise_for_status()
             
-            client = sseclient.SSEClient(response)
+            # Correct way to initialize SSEClient
+            client = sseclient.SSEClient(response.raw)
             print("✅ Successfully connected to Wikimedia EventStream")
 
             for event in client.events():
@@ -48,13 +45,11 @@ def stream_changes(callback: Callable[[int, Dict[str, Any]], None],
                     wiki = change.get("wiki")
                     change_type = change.get("type", "unknown")
                     
-                    # Special handling for log events
                     if change_type == "log":
                         change_type = change.get("log_type", change_type)
                     
                     print(f"📡 Event received | Wiki: {wiki} | Type: {change_type}")
                     
-                    # Check all monitored groups for matching criteria
                     for group_id, config in monitored_groups.items():
                         if (config.wiki == wiki and 
                             change_type in config.events):
