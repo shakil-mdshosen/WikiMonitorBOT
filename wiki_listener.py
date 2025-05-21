@@ -3,7 +3,6 @@ import requests
 import time
 import sseclient
 
-# Connect to specific Wikimedia streams
 EVENTSTREAM_URL = "https://stream.wikimedia.org/v2/stream/recentchange"
 
 def stream_changes(callback, monitored_groups):
@@ -12,26 +11,22 @@ def stream_changes(callback, monitored_groups):
     while True:  # Reconnect loop to handle connection drops gracefully
         try:
             response = requests.get(EVENTSTREAM_URL, stream=True, timeout=60)
-            client = sseclient.SSEClient(response)
+            client = sseclient.SSEClient(response.raw)  # ✅ FIXED LINE
             print("✅ Connected to Wikimedia event stream")
 
             for event in client.events():
                 if event.event == "message":
                     try:
                         change = json.loads(event.data)
-
-                        # Print full event for debugging
-                        print("\n📦 Full change event:")
-                        print(json.dumps(change, indent=2))
-
-                        wiki = change.get("meta", {}).get("wiki") or change.get("wiki")
+                        wiki = change.get("wiki")
                         change_type = change.get("type")
 
-                        # Normalize log events if needed
+                        # Normalize log event types (e.g., block, delete)
                         if change_type == "log":
                             change_type = change.get("log_type", change_type)
 
-                        print(f"🔍 Filtered: wiki={wiki}, type={change_type}")
+                        # Debug print to check incoming changes
+                        print(f"Received event: wiki={wiki}, type={change_type}")
 
                         for group_id, config in monitored_groups.items():
                             if (
@@ -41,18 +36,18 @@ def stream_changes(callback, monitored_groups):
                                 print(f"➡️ Sending change to group {group_id}")
                                 callback(group_id, change)
 
-                        time.sleep(0.01)  # Prevents CPU spike
+                        time.sleep(0.01)
 
                     except json.JSONDecodeError as e:
-                        print("❌ JSON decode error:", e)
+                        print("JSON decode error:", e)
                     except Exception as e:
-                        print("❌ Error handling event:", e)
+                        print("Error handling event:", e)
 
         except requests.exceptions.RequestException as e:
             print(f"⚠️ Connection error: {e}. Reconnecting in 5 seconds...")
             time.sleep(5)
         except KeyboardInterrupt:
-            print("🛑 Listener stopped by user")
+            print("Listener stopped by user")
             break
         except Exception as e:
             print(f"⚠️ Unexpected error: {e}. Reconnecting in 5 seconds...")
