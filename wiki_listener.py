@@ -1,12 +1,11 @@
 import json
-import requests
 import time
+import requests
 from sseclient import SSEClient
-from urllib3.response import HTTPResponse
 from typing import Dict, Callable, Any
 
 EVENTSTREAM_URL = "https://stream.wikimedia.org/v2/stream/recentchange"
-RECONNECT_DELAY = 5  # seconds
+RECONNECT_DELAY = 5
 
 def stream_changes(callback: Callable[[int, Dict[str, Any]], None], 
                  monitored_groups: Dict[int, Dict[str, Any]]) -> None:
@@ -17,22 +16,26 @@ def stream_changes(callback: Callable[[int, Dict[str, Any]], None],
     
     while True:
         try:
-            # Create a requests session with streaming
+            # Create a new session for each connection attempt
             session = requests.Session()
+            
+            # Make the initial request
             response = session.get(
                 EVENTSTREAM_URL,
                 stream=True,
-                headers={'Accept': 'text/event-stream'}
+                headers={'Accept': 'text/event-stream'},
+                timeout=30
             )
             
-            # Verify we got a successful response
+            # Verify the response
             if response.status_code != 200:
                 print(f"⚠️ Server returned status {response.status_code}")
+                response.close()
                 time.sleep(RECONNECT_DELAY)
                 continue
                 
-            # Properly initialize the SSE client
-            client = SSEClient(response)
+            # Properly initialize the SSE client with the raw response
+            client = SSEClient(response.iter_content(chunk_size=None))
             print("✅ Successfully connected to EventStream")
             
             for event in client.events():
@@ -66,7 +69,7 @@ def stream_changes(callback: Callable[[int, Dict[str, Any]], None],
                     print(f"⚠️ Event processing error: {e}")
 
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Connection error: {e}")
+            print(f"⚠️ Connection error: {str(e)}")
             print(f"♻️ Reconnecting in {RECONNECT_DELAY} seconds...")
             time.sleep(RECONNECT_DELAY)
             
@@ -75,6 +78,6 @@ def stream_changes(callback: Callable[[int, Dict[str, Any]], None],
             raise
             
         except Exception as e:
-            print(f"⚠️ Unexpected error: {e}")
+            print(f"⚠️ Unexpected error: {str(e)}")
             print(f"♻️ Restarting in {RECONNECT_DELAY} seconds...")
             time.sleep(RECONNECT_DELAY)
