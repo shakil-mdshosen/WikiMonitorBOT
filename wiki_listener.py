@@ -1,83 +1,80 @@
 import json
 import requests
 import time
-import sseclient
+from sseclient import SSEClient
+from urllib3.response import HTTPResponse
 from typing import Dict, Callable, Any
-from dataclasses import dataclass
 
 EVENTSTREAM_URL = "https://stream.wikimedia.org/v2/stream/recentchange"
 RECONNECT_DELAY = 5  # seconds
-EVENT_PROCESSING_DELAY = 0.01  # seconds
-
-@dataclass
-class GroupConfig:
-    wiki: str
-    events: list[str]
 
 def stream_changes(callback: Callable[[int, Dict[str, Any]], None], 
-                  monitored_groups: Dict[int, GroupConfig]) -> None:
+                 monitored_groups: Dict[int, Dict[str, Any]]) -> None:
     """
-    Continuously listens to Wikimedia event stream and forwards relevant events to registered groups.
+    Robust EventStream listener with proper error handling
     """
-    print("🔄 Starting Wikimedia EventStream listener...")
+    print("🔄 Starting EventStream listener...")
     
     while True:
         try:
-            # Initialize connection with timeout and streaming
-            response = requests.get(
+            # Create a requests session with streaming
+            session = requests.Session()
+            response = session.get(
                 EVENTSTREAM_URL,
                 stream=True,
-                timeout=60,
                 headers={'Accept': 'text/event-stream'}
             )
-            response.raise_for_status()
             
-            # Correct way to initialize SSEClient
-            client = sseclient.SSEClient(response.raw)
-            print("✅ Successfully connected to Wikimedia EventStream")
-
+            # Verify we got a successful response
+            if response.status_code != 200:
+                print(f"⚠️ Server returned status {response.status_code}")
+                time.sleep(RECONNECT_DELAY)
+                continue
+                
+            # Properly initialize the SSE client
+            client = SSEClient(response)
+            print("✅ Successfully connected to EventStream")
+            
             for event in client.events():
-                if not event.event == "message":
-                    continue
-                    
                 try:
+                    if event.event != "message":
+                        continue
+                        
                     change = json.loads(event.data)
                     wiki = change.get("wiki")
                     change_type = change.get("type", "unknown")
                     
+                    # Handle log events
                     if change_type == "log":
                         change_type = change.get("log_type", change_type)
                     
-                    print(f"📡 Event received | Wiki: {wiki} | Type: {change_type}")
+                    print(f"📡 Event: {wiki} | {change_type}")
                     
+                    # Check all monitored groups
                     for group_id, config in monitored_groups.items():
-                        if (config.wiki == wiki and 
-                            change_type in config.events):
-                            print(f"➡️ Forwarding to group {group_id}")
+                        if (config.get("wiki") == wiki and 
+                            change_type in config.get("events", [])):
+                            print(f"➡️ Matching group {group_id}")
                             try:
                                 callback(group_id, change)
                             except Exception as e:
-                                print(f"⚠️ Failed to send to group {group_id}: {e}")
+                                print(f"⚠️ Callback failed: {e}")
                     
-                    time.sleep(EVENT_PROCESSING_DELAY)
-                
                 except json.JSONDecodeError:
-                    print("⚠️ Malformed event data (JSON decode failed)")
-                except KeyError as e:
-                    print(f"⚠️ Missing expected field in event: {e}")
+                    print("⚠️ Invalid JSON in event")
                 except Exception as e:
-                    print(f"⚠️ Unexpected error processing event: {e}")
+                    print(f"⚠️ Event processing error: {e}")
 
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Connection error ({e.__class__.__name__}): {e}")
+            print(f"⚠️ Connection error: {e}")
             print(f"♻️ Reconnecting in {RECONNECT_DELAY} seconds...")
             time.sleep(RECONNECT_DELAY)
             
         except KeyboardInterrupt:
-            print("🛑 Received interrupt signal, shutting down...")
+            print("🛑 Shutting down...")
             raise
             
         except Exception as e:
-            print(f"⚠️ Unexpected error in event loop ({e.__class__.__name__}): {e}")
+            print(f"⚠️ Unexpected error: {e}")
             print(f"♻️ Restarting in {RECONNECT_DELAY} seconds...")
             time.sleep(RECONNECT_DELAY)
