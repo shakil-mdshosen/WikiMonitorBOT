@@ -1,5 +1,8 @@
 {
   "-1002599867949": {
-    "wiki": "bnwiki"
+    "wiki": "bnwiki",
+    "events": [
+      "edit"
+    ]
   }
 }
