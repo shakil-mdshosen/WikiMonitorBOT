@@ -4,7 +4,7 @@ import time
 import sseclient
 
 # Connect to specific Wikimedia streams
-EVENTSTREAM_URL = "https://stream.wikimedia.org/v2/stream/mediawiki.page-create,mediawiki.page-delete,mediawiki.revision-create"
+EVENTSTREAM_URL = "https://stream.wikimedia.org/v2/stream/recentchange"
 
 def stream_changes(callback, monitored_groups):
     print("🔄 Starting stream_changes listener...")
