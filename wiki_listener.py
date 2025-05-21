@@ -18,6 +18,11 @@ def stream_changes(callback, monitored_groups):
                 if event.event == "message":
                     try:
                         change = json.loads(event.data)
+                        
+                        # Discard canary events per doc recommendation
+                        if change.get("meta", {}).get("domain") == "canary":
+                            continue
+
                         wiki = change.get("wiki")
                         change_type = change.get("type")
 
@@ -36,7 +41,8 @@ def stream_changes(callback, monitored_groups):
                                 print(f"➡️ Sending change to group {group_id}")
                                 callback(group_id, change)
 
-                        time.sleep(0.01)  # Prevents tight loop CPU spike
+                        # Optional: reduce or remove sleep if not needed
+                        # time.sleep(0.001)
 
                     except json.JSONDecodeError as e:
                         print("JSON decode error:", e)
