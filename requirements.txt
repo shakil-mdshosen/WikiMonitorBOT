@@ -4,3 +4,4 @@ urllib3==1.26.18
 python-telegram-bot
 requests
 PyYAML
+sseclient
