@@ -3,7 +3,8 @@ import requests
 import time
 import sseclient
 
-EVENTSTREAM_URL = "https://stream.wikimedia.org/v2/stream/recentchange"
+# Connect to specific Wikimedia streams
+EVENTSTREAM_URL = "https://stream.wikimedia.org/v2/stream/mediawiki.page-create,mediawiki.page-delete,mediawiki.revision-create"
 
 def stream_changes(callback, monitored_groups):
     print("🔄 Starting stream_changes listener...")
@@ -18,20 +19,19 @@ def stream_changes(callback, monitored_groups):
                 if event.event == "message":
                     try:
                         change = json.loads(event.data)
-                        
-                        # Discard canary events per doc recommendation
-                        if change.get("meta", {}).get("domain") == "canary":
-                            continue
 
-                        wiki = change.get("wiki")
+                        # Print full event for debugging
+                        print("\n📦 Full change event:")
+                        print(json.dumps(change, indent=2))
+
+                        wiki = change.get("meta", {}).get("wiki") or change.get("wiki")
                         change_type = change.get("type")
 
-                        # Normalize log event types (e.g., block, delete)
+                        # Normalize log events if needed
                         if change_type == "log":
                             change_type = change.get("log_type", change_type)
 
-                        # Debug print to check incoming changes
-                        print(f"Received event: wiki={wiki}, type={change_type}")
+                        print(f"🔍 Filtered: wiki={wiki}, type={change_type}")
 
                         for group_id, config in monitored_groups.items():
                             if (
@@ -41,20 +41,19 @@ def stream_changes(callback, monitored_groups):
                                 print(f"➡️ Sending change to group {group_id}")
                                 callback(group_id, change)
 
-                        # Optional: reduce or remove sleep if not needed
-                        # time.sleep(0.001)
+                        time.sleep(0.01)  # Prevents CPU spike
 
                     except json.JSONDecodeError as e:
-                        print("JSON decode error:", e)
+                        print("❌ JSON decode error:", e)
                     except Exception as e:
-                        print("Error handling event:", e)
+                        print("❌ Error handling event:", e)
 
         except requests.exceptions.RequestException as e:
-            print(f"Connection error: {e}. Reconnecting in 5 seconds...")
+            print(f"⚠️ Connection error: {e}. Reconnecting in 5 seconds...")
             time.sleep(5)
         except KeyboardInterrupt:
-            print("Listener stopped by user")
+            print("🛑 Listener stopped by user")
             break
         except Exception as e:
-            print(f"Unexpected error: {e}. Reconnecting in 5 seconds...")
+            print(f"⚠️ Unexpected error: {e}. Reconnecting in 5 seconds...")
             time.sleep(5)
