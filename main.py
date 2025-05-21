@@ -6,6 +6,8 @@ from utils import load_settings, save_settings_locally, update_github
 import asyncio
 import aiohttp
 import json
+import signal
+import functools
 
 # Configure logging
 logging.basicConfig(
@@ -24,6 +26,8 @@ class WikiMonitorBot:
         self.application = Application.builder().token(BOT_TOKEN).build()
         self._register_handlers()
         self.session = None
+        self.event_listener_task = None
+        self.shutdown_event = asyncio.Event()
 
     def _register_handlers(self):
         """Register all command handlers"""
@@ -125,7 +129,7 @@ class WikiMonitorBot:
         self.session = aiohttp.ClientSession()
         logger.info("🔄 Starting EventStream listener...")
         
-        while True:
+        while not self.shutdown_event.is_set():
             try:
                 async with self.session.get(
                     EVENTSTREAM_URL,
@@ -138,6 +142,9 @@ class WikiMonitorBot:
                         continue
                         
                     async for line in response.content:
+                        if self.shutdown_event.is_set():
+                            break
+                            
                         if line.startswith(b'data: '):
                             try:
                                 event = json.loads(line[6:].decode('utf-8'))
@@ -150,6 +157,9 @@ class WikiMonitorBot:
                                 logger.debug("📡 Event: %s | %s", wiki, change_type)
                                 
                                 for group_id, config in settings.items():
+                                    if self.shutdown_event.is_set():
+                                        break
+                                        
                                     if (config.get("wiki") == wiki and 
                                         change_type in config.get("events", [])):
                                         logger.info("➡️ Forwarding to group %s", group_id)
@@ -161,31 +171,57 @@ class WikiMonitorBot:
                                 logger.error("Event processing error: %s", e)
             
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.error("Connection error: %s. Reconnecting in %d seconds...", e, RECONNECT_DELAY)
-                await asyncio.sleep(RECONNECT_DELAY)
+                if not self.shutdown_event.is_set():
+                    logger.error("Connection error: %s. Reconnecting in %d seconds...", e, RECONNECT_DELAY)
+                    await asyncio.sleep(RECONNECT_DELAY)
             except Exception as e:
-                logger.error("Unexpected error: %s. Restarting in %d seconds...", e, RECONNECT_DELAY)
-                await asyncio.sleep(RECONNECT_DELAY)
+                if not self.shutdown_event.is_set():
+                    logger.error("Unexpected error: %s. Restarting in %d seconds...", e, RECONNECT_DELAY)
+                    await asyncio.sleep(RECONNECT_DELAY)
 
-    async def on_shutdown(self, app):
-        """Cleanup on shutdown"""
+        # Cleanup
         if self.session:
             await self.session.close()
 
-    def run(self):
+    async def shutdown(self):
+        """Clean shutdown"""
+        logger.info("🛑 Shutting down...")
+        self.shutdown_event.set()
+        
+        if self.event_listener_task:
+            await self.event_listener_task
+            
+        if self.session:
+            await self.session.close()
+
+    async def run(self):
         """Run the application"""
-        self.application.run_polling()
+        # Set up signal handlers
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(
+                sig,
+                lambda: asyncio.create_task(self.shutdown())
+            )
+
+        # Start event listener
+        self.event_listener_task = asyncio.create_task(self.listen_to_events())
+        
+        # Run the application
+        try:
+            await self.application.run_polling()
+        finally:
+            await self.shutdown()
 
 async def main():
     """Main async function"""
     bot = WikiMonitorBot()
-    
-    # Create tasks for both bot and event listener
-    bot_task = asyncio.create_task(bot.run())
-    listener_task = asyncio.create_task(bot.listen_to_events())
-    
-    # Run both tasks
-    await asyncio.gather(bot_task, listener_task)
+    await bot.run()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.error("Fatal error: %s", e)
