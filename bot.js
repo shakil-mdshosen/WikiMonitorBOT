@@ -1,28 +1,45 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const WikimediaStream = require('wikimedia-streams');
+const EventSource = require('eventsource');
 const { loadSettings, saveSettings } = require('./utils/settings');
 const { updateGithub } = require('./utils/github');
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 const settings = loadSettings();
 
-// Initialize Wikimedia stream
-const stream = new WikimediaStream('recentchange');
+// Initialize Wikimedia EventStream
+const eventStreamUrl = 'https://stream.wikimedia.org/v2/stream/recentchange';
+let eventSource;
 
-stream.on('open', () => console.log('✅ Connected to Wikimedia stream'));
-stream.on('error', err => console.error('❌ Stream error:', err));
+function connectToEventStream() {
+  eventSource = new EventSource(eventStreamUrl);
 
-stream.on('data', data => {
-  const wiki = data.wiki || data.meta?.domain;
-  const type = data.type === 'log' ? data.log_type : data.type;
-  
-  Object.entries(settings).forEach(([chatId, config]) => {
-    if (config.wiki === wiki && config.events.includes(type)) {
-      sendNotification(chatId, data);
+  eventSource.onopen = () => {
+    console.log('✅ Connected to Wikimedia EventStream');
+  };
+
+  eventSource.onerror = (err) => {
+    console.error('❌ EventStream error:', err);
+    // Reconnect after delay
+    setTimeout(connectToEventStream, 5000);
+  };
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      const wiki = data.wiki || data.meta?.domain;
+      const type = data.type === 'log' ? data.log_type : data.type;
+
+      Object.entries(settings).forEach(([chatId, config]) => {
+        if (config.wiki === wiki && config.events.includes(type)) {
+          sendNotification(chatId, data);
+        }
+      });
+    } catch (err) {
+      console.error('Error processing event:', err);
     }
-  });
-});
+  };
+}
 
 function sendNotification(chatId, data) {
   const title = data.title || data.log_title || 'Unknown';
@@ -38,7 +55,7 @@ function sendNotification(chatId, data) {
   ).catch(err => console.error(`Error sending to ${chatId}:`, err.message));
 }
 
-// Command handlers
+// Command handlers (keep your existing ones)
 bot.onText(/\/start/, msg => {
   bot.sendMessage(msg.chat.id, '👋 Welcome! Use /setwiki and /setevents to configure monitoring.');
 });
@@ -63,4 +80,13 @@ function isAdmin(msg) {
   return true;
 }
 
+// Start the connection
+connectToEventStream();
+
 console.log('🤖 Bot is running...');
+
+// Cleanup on exit
+process.on('SIGINT', () => {
+  if (eventSource) eventSource.close();
+  process.exit();
+});
