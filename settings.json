@@ -43,5 +43,14 @@
     "events": [
       "new"
     ]
+  },
+  "-1002566326918": {
+    "wiki": "bnwiki",
+    "events": [
+      "edit",
+      "new",
+      "delete",
+      "log"
+    ]
   }
 }
