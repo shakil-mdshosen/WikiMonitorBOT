@@ -1,18 +1,22 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const EventSource = require('eventsource');
-const { loadSettings, saveSettings } = require('./utils/settings');
-const { updateGithub } = require('./utils/github');
+import 'dotenv/config';
+import TelegramBot from 'node-telegram-bot-api';
+import EventSource from 'eventsource';
+import { loadSettings, saveSettings } from './utils/settings.js';
+import { updateGithub } from './utils/github.js';
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+const config = {
+  telegramToken: process.env.TELEGRAM_BOT_TOKEN,
+  eventStreamUrl: 'https://stream.wikimedia.org/v2/stream/recentchange'
+};
+
+const bot = new TelegramBot(config.telegramToken, { polling: true });
 const settings = loadSettings();
 
 // Initialize Wikimedia EventStream
-const eventStreamUrl = 'https://stream.wikimedia.org/v2/stream/recentchange';
 let eventSource;
 
 function connectToEventStream() {
-  eventSource = new EventSource(eventStreamUrl);
+  eventSource = new EventSource(config.eventStreamUrl);
 
   eventSource.onopen = () => {
     console.log('✅ Connected to Wikimedia EventStream');
@@ -20,7 +24,6 @@ function connectToEventStream() {
 
   eventSource.onerror = (err) => {
     console.error('❌ EventStream error:', err);
-    // Reconnect after delay
     setTimeout(connectToEventStream, 5000);
   };
 
@@ -30,11 +33,11 @@ function connectToEventStream() {
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
-      Object.entries(settings).forEach(([chatId, config]) => {
+      for (const [chatId, config] of Object.entries(settings)) {
         if (config.wiki === wiki && config.events.includes(type)) {
           sendNotification(chatId, data);
         }
-      });
+      }
     } catch (err) {
       console.error('Error processing event:', err);
     }
@@ -47,7 +50,8 @@ function sendNotification(chatId, data) {
   const wikiDomain = (data.wiki || 'enwiki').replace('wiki', '');
   const pageUrl = `https://${wikiDomain}.wikipedia.org/wiki/${encodeURIComponent(title)}`;
 
-  bot.sendMessage(chatId, 
+  bot.sendMessage(
+    chatId, 
     `🔔 *${data.type.toUpperCase()}* on ${data.wiki}\n` +
     `📝 Page: [${title}](${pageUrl})\n` +
     `👤 User: ${user}`,
@@ -55,8 +59,8 @@ function sendNotification(chatId, data) {
   ).catch(err => console.error(`Error sending to ${chatId}:`, err.message));
 }
 
-// Command handlers (keep your existing ones)
-bot.onText(/\/start/, msg => {
+// Command handlers
+bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, '👋 Welcome! Use /setwiki and /setevents to configure monitoring.');
 });
 
@@ -73,7 +77,7 @@ bot.onText(/\/setwiki (.+)/, (msg, match) => {
   bot.sendMessage(chatId, `✅ Wiki set to: \`${match[1]}\``, { parse_mode: 'Markdown' });
 });
 
-// Add other command handlers (/setevents, /showconfig, etc.)
+// Add other command handlers as needed
 
 function isAdmin(msg) {
   // Implement your admin check logic
