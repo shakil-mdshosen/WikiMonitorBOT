@@ -9,6 +9,10 @@
   },
   "-1002553666220": {
     "wiki": "bnwikibooks",
-    "events": []
+    "events": [
+      "edit,",
+      "new,",
+      "delete"
+    ]
   }
 }
