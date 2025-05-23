@@ -35,7 +35,8 @@
     "wiki": "bnwiki",
     "events": [
       "new"
-    ]
+    ],
+    "status": "paused"
   },
   "6935254252": {
     "wiki": "bnwiki",
