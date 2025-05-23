@@ -19,8 +19,13 @@ const bot = new TelegramBot(config.telegramToken, {
   }
 });
 
-// Load settings
+// Load settings and initialize group status
 const settings = loadSettings();
+const groupStatus = {};
+Object.keys(settings).forEach(chatId => {
+  groupStatus[chatId] = settings[chatId].status || 'active'; // Default to active
+});
+
 console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || 'none');
 
 // Initialize Wikimedia EventStream
@@ -44,9 +49,11 @@ function connectToEventStream() {
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
-      // Find matching groups
+      // Find matching groups that are active
       Object.entries(settings).forEach(([chatId, groupConfig]) => {
-        if (groupConfig.wiki === wiki && groupConfig.events.includes(type)) {
+        if (groupStatus[chatId] === 'active' && 
+            groupConfig.wiki === wiki && 
+            groupConfig.events.includes(type)) {
           sendNotification(chatId, data);
         }
       });
@@ -178,7 +185,10 @@ const commands = [
   { command: 'help', description: 'Show help information' },
   { command: 'setwiki', description: 'Set wiki to monitor (e.g. enwiki)' },
   { command: 'setevents', description: 'Set event types (edit, new, delete)' },
-  { command: 'showconfig', description: 'Show current configuration' }
+  { command: 'showconfig', description: 'Show current configuration' },
+  { command: 'status', description: 'Check bot status in this group' },
+  { command: 'off', description: 'Pause notifications in this group' },
+  { command: 'on', description: 'Resume notifications in this group' }
 ];
 
 // Set bot commands
@@ -192,7 +202,8 @@ bot.onText(/\/start/, (msg) => {
     `${commands.map(cmd => `/${cmd.command} - ${cmd.description}`).join('\n')}\n\n` +
     `Example setup:\n` +
     `1. /setwiki enwiki\n` +
-    `2. /setevents edit new delete move`;
+    `2. /setevents edit new delete move\n` +
+    `3. Use /off to pause or /on to resume notifications`;
   
   bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
 });
@@ -235,10 +246,11 @@ bot.onText(/\/setwiki (.+)/, (msg, match) => {
 
   // Initialize group config if not exists
   if (!settings[chatId]) {
-    settings[chatId] = { wiki: '', events: [] };
+    settings[chatId] = { wiki: '', events: [], status: 'active' };
   }
   
   settings[chatId].wiki = wiki;
+  groupStatus[chatId] = 'active';
   
   if (saveSettings(settings)) {
     updateGithub(settings).then(success => {
@@ -301,14 +313,91 @@ bot.onText(/\/setevents (.+)/, (msg, match) => {
 bot.onText(/\/showconfig/, (msg) => {
   const chatId = msg.chat.id.toString();
   const groupConfig = settings[chatId] || {};
+  const status = groupStatus[chatId] || 'active';
   
   const message = `
 🔧 *Current Configuration:*
 Wiki: \`${groupConfig.wiki || 'Not set'}\`
 Events: \`${groupConfig.events?.join(', ') || 'None'}\`
+Status: \`${status === 'active' ? 'Active ✅' : 'Paused ⏸'}\`
   `.trim();
   
   bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+});
+
+bot.onText(/\/status/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  const currentStatus = groupStatus[chatId] || 'active';
+  
+  bot.sendMessage(chatId, 
+    `🔘 Current status: ${currentStatus === 'active' ? '✅ Active' : '⏸ Paused'}\n` +
+    `Use /off to pause or /on to resume notifications.`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+bot.onText(/\/off/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  const fromId = msg.from.id.toString();
+  
+  if (!isAdmin(fromId)) {
+    return bot.sendMessage(chatId, '🚫 *Error:* This command is only available for admins', 
+      { parse_mode: 'Markdown' });
+  }
+
+  groupStatus[chatId] = 'paused';
+  
+  // Update settings with status
+  if (!settings[chatId]) {
+    settings[chatId] = { status: 'paused' };
+  } else {
+    settings[chatId].status = 'paused';
+  }
+  
+  if (saveSettings(settings)) {
+    updateGithub(settings).then(success => {
+      const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
+      bot.sendMessage(chatId, 
+        `⏸ *Notifications paused* ${statusMsg}. Use /on to resume.`,
+        { parse_mode: 'Markdown' });
+    });
+  } else {
+    bot.sendMessage(chatId, 
+      '❌ *Error:* Failed to save settings. Please try again.',
+      { parse_mode: 'Markdown' });
+  }
+});
+
+bot.onText(/\/on/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  const fromId = msg.from.id.toString();
+  
+  if (!isAdmin(fromId)) {
+    return bot.sendMessage(chatId, '🚫 *Error:* This command is only available for admins', 
+      { parse_mode: 'Markdown' });
+  }
+
+  groupStatus[chatId] = 'active';
+  
+  // Update settings with status
+  if (!settings[chatId]) {
+    settings[chatId] = { status: 'active' };
+  } else {
+    settings[chatId].status = 'active';
+  }
+  
+  if (saveSettings(settings)) {
+    updateGithub(settings).then(success => {
+      const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
+      bot.sendMessage(chatId, 
+        `✅ *Notifications resumed* ${statusMsg}. Use /off to pause.`,
+        { parse_mode: 'Markdown' });
+    });
+  } else {
+    bot.sendMessage(chatId, 
+      '❌ *Error:* Failed to save settings. Please try again.',
+      { parse_mode: 'Markdown' });
+  }
 });
 
 // Admin check function
