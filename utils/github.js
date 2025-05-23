@@ -1,51 +1,70 @@
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
+const config = require('../config');
 
-const SETTINGS_FILE = path.join(__dirname, '../settings.json');
+if (!config.github.token || !config.github.repo) {
+  console.log('ℹ️ GitHub integration disabled - no token/repo configured');
+}
 
 async function updateGithub(settings) {
-  if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) return;
-  
+  if (!config.github.token || !config.github.repo) return false;
+
   try {
-    const content = fs.readFileSync(SETTINGS_FILE, 'utf8');
+    const content = fs.readFileSync(path.join(__dirname, '../', config.github.settingsFile), 'utf8');
+    const sha = await getFileSha();
+    
     const response = await fetch(
-      `https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/settings.json`,
+      `https://api.github.com/repos/${config.github.repo}/contents/${config.github.settingsFile}`,
       {
         method: 'PUT',
         headers: {
-          'Authorization': `token ${process.env.GITHUB_TOKEN}`,
-          'Content-Type': 'application/json'
+          'Authorization': `token ${config.github.token}`,
+          'Accept': 'application/vnd.github.v3+json'
         },
         body: JSON.stringify({
-          message: 'Update settings',
+          message: config.github.commitMessage,
           content: Buffer.from(content).toString('base64'),
-          sha: await getFileSha()
+          sha: sha
         })
       }
     );
-    
-    if (!response.ok) throw new Error(await response.text());
+
+    if (!response.ok) {
+      throw new Error(`GitHub API responded with ${response.status}`);
+    }
+
+    console.log('✅ Settings updated on GitHub');
+    return true;
   } catch (err) {
-    console.error('GitHub update failed:', err);
+    console.error('❌ GitHub sync failed:', err.message);
+    return false;
   }
 }
 
 async function getFileSha() {
   try {
     const response = await fetch(
-      `https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/settings.json`,
+      `https://api.github.com/repos/${config.github.repo}/contents/${config.github.settingsFile}`,
       {
         headers: {
-          'Authorization': `token ${process.env.GITHUB_TOKEN}`
+          'Authorization': `token ${config.github.token}`,
+          'Accept': 'application/vnd.github.v3+json'
         }
       }
     );
+    
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`GitHub API responded with ${response.status}`);
+    
     const data = await response.json();
     return data.sha;
-  } catch {
+  } catch (err) {
+    console.error('❌ Error getting file SHA:', err.message);
     return null;
   }
 }
 
-module.exports = { updateGithub };
+module.exports = {
+  updateGithub
+};
