@@ -70,49 +70,97 @@ function sendNotification(chatId, data) {
     ? `[${user}](${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)})`
     : 'Anonymous';
 
-  // Default message parts
-  let messageParts = [
-    `🔔 *${data.type.toUpperCase()}* on ${data.wiki}`,
-    `📝 Page: [${title}](${pageUrl})`,
+  // Start building the message
+  let messageParts = [];
+  let eventType = data.type;
+
+  // Handle different event types
+  switch (data.type) {
+    case 'edit':
+      messageParts.push(`✏️ *Edit* on ${data.wiki}`);
+      if (data.revid && data.old_revid) {
+        const diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
+        messageParts.push(`🔀 [View changes](${diffUrl})`);
+      }
+      if (data.comment) {
+        messageParts.push(`📝 Edit summary: ${data.comment}`);
+      }
+      break;
+
+    case 'new':
+      messageParts.push(`✨ *New page* on ${data.wiki}`);
+      if (data.comment) {
+        messageParts.push(`📝 Creation reason: ${data.comment}`);
+      }
+      break;
+
+    case 'log':
+      eventType = `log ${data.log_type}`;
+      switch (data.log_type) {
+        case 'delete':
+          messageParts.push(`🗑️ *Page deletion* on ${data.wiki}`);
+          if (data.log_params?.count) {
+            messageParts.push(`🔢 Pages affected: ${data.log_params.count}`);
+          }
+          break;
+        case 'block':
+          messageParts.push(`⛔ *User block* on ${data.wiki}`);
+          if (data.log_params?.duration) {
+            messageParts.push(`⏱️ Duration: ${data.log_params.duration}`);
+          }
+          break;
+        case 'move':
+          messageParts.push(`↔️ *Page move* on ${data.wiki}`);
+          if (data.log_params?.target_title) {
+            const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title)}`;
+            messageParts.push(`➡️ Moved to: [${data.log_params.target_title}](${targetUrl})`);
+          }
+          break;
+        case 'protect':
+          messageParts.push(`🛡️ *Protection change* on ${data.wiki}`);
+          if (data.log_params?.description) {
+            messageParts.push(`📝 Reason: ${data.log_params.description}`);
+          }
+          break;
+        default:
+          messageParts.push(`📋 *Log event (${data.log_type})* on ${data.wiki}`);
+      }
+      if (data.log_comment) {
+        messageParts.push(`💬 Log comment: ${data.log_comment}`);
+      }
+      break;
+
+    case 'move':
+      messageParts.push(`↔️ *Page move* on ${data.wiki}`);
+      if (data.target_title) {
+        const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title)}`;
+        messageParts.push(`➡️ Moved to: [${data.target_title}](${targetUrl})`);
+      }
+      if (data.comment) {
+        messageParts.push(`📝 Reason: ${data.comment}`);
+      }
+      break;
+
+    default:
+      messageParts.push(`🔔 *${data.type}* on ${data.wiki}`);
+  }
+
+  // Common message parts for all events
+  messageParts.push(
+    `📄 Page: [${title}](${pageUrl})`,
     `👤 User: ${userLink}`
-  ];
+  );
 
-  // Add diff link for edits
-  if (data.type === 'edit' && data.revid) {
-    const diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
-    messageParts.push(`🔀 [View changes](${diffUrl})`);
-    
-    if (data.comment) {
-      messageParts.push(`💬 Edit summary: ${data.comment}`);
-    }
+  // For edits, show byte changes if available
+  if (data.type === 'edit' && data.length && data.old_length) {
+    const byteChange = data.length.new - data.length.old;
+    const changeSymbol = byteChange >= 0 ? '+' : '';
+    messageParts.push(`📊 Size change: ${changeSymbol}${byteChange} bytes`);
   }
 
-  // Add details for log events
-  if (data.type === 'log') {
-    messageParts[0] = `🔔 *LOG ${data.log_type.toUpperCase()}* on ${data.wiki}`;
-    
-    if (data.log_action === 'delete' && data.log_params?.count) {
-      messageParts.push(`🗑️ Deleted ${data.log_params.count} pages`);
-    }
-    
-    if (data.log_action === 'block' && data.log_params?.duration) {
-      messageParts.push(`⏱️ Block duration: ${data.log_params.duration}`);
-    }
-    
-    if (data.log_comment) {
-      messageParts.push(`📝 Log comment: ${data.log_comment}`);
-    }
-  }
-
-  // Add page creation notice
-  if (data.type === 'new') {
-    messageParts.push(`✨ New page created`);
-  }
-
-  // Add page move notice
-  if (data.type === 'move') {
-    const targetTitle = data.target_title || 'unknown';
-    messageParts.push(`➡️ Moved to: [[${targetTitle}]]`);
+  // For new pages, show initial size if available
+  if (data.type === 'new' && data.length) {
+    messageParts.push(`📊 Initial size: ${data.length.new} bytes`);
   }
 
   // Send the formatted message
@@ -161,7 +209,8 @@ bot.onText(/\/help/, (msg) => {
     `- delete: Page deletions\n` +
     `- move: Page moves\n` +
     `- block: User blocks\n` +
-    `- protect: Page protections`,
+    `- protect: Page protections\n` +
+    `- log: All log events`,
     { parse_mode: 'Markdown' }
   );
 });
@@ -216,7 +265,7 @@ bot.onText(/\/setevents (.+)/, (msg, match) => {
   }
 
   const events = match[1].trim().split(/\s+/);
-  const validEvents = ['edit', 'new', 'delete', 'move', 'block', 'protect'];
+  const validEvents = ['edit', 'new', 'delete', 'move', 'block', 'protect', 'log'];
   const invalidEvents = events.filter(e => !validEvents.includes(e));
   
   if (invalidEvents.length > 0) {
