@@ -21,7 +21,11 @@
     "events": [
       "edit",
       "new",
-      "delete"
+      "delete",
+      "move",
+      "block",
+      "protect",
+      "log"
     ]
   },
   "5660281670": {
