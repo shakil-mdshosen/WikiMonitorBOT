@@ -1,7 +1,11 @@
 {
   "1582340088": {
     "wiki": "bnwiki",
-    "events": []
+    "events": [
+      "edit",
+      "new",
+      "log"
+    ]
   },
   "-1002599867949": {
     "wiki": "bnwiki",
