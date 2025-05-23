@@ -8,8 +8,7 @@ import { updateGithub } from './utils/github.js';
 const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN,
   eventStreamUrl: 'https://stream.wikimedia.org/v2/stream/recentchange',
-  adminIds: process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : [],
-  debug: process.env.DEBUG_EVENTS === 'true'
+  adminIds: process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : []
 };
 
 // Initialize bot with polling
@@ -25,7 +24,6 @@ const settings = loadSettings();
 const groupStatus = {};
 Object.keys(settings).forEach(chatId => {
   groupStatus[chatId] = settings[chatId].status || 'active'; // Default to active
-  if (!settings[chatId].events) settings[chatId].events = []; // Initialize events array if missing
 });
 
 console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || 'none');
@@ -48,17 +46,6 @@ function connectToEventStream() {
   eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      
-      if (config.debug) {
-        console.log('Received event:', JSON.stringify(data, null, 2));
-      }
-
-      // Skip if essential data is missing
-      if (!data.wiki || !data.type) {
-        if (config.debug) console.log('Skipping incomplete event');
-        return;
-      }
-
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
@@ -77,138 +64,131 @@ function connectToEventStream() {
 }
 
 function sendNotification(chatId, data) {
-  try {
-    const title = data.title || data.log_title || 'Unknown';
-    const user = data.user || data.performer?.user_text || 'Anonymous';
-    const wikiDomain = (data.wiki || 'enwiki').replace('wiki', '');
-    const baseUrl = `https://${wikiDomain}.wikipedia.org`;
-    
-    // Page URL
-    const pageUrl = `${baseUrl}/wiki/${encodeURIComponent(title)}`;
-    
-    // User contribution link
-    const userLink = user !== 'Anonymous' 
-      ? `[${user}](${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)})`
-      : 'Anonymous';
+  const title = data.title || data.log_title || 'Unknown';
+  const user = data.user || data.performer?.user_text || 'Anonymous';
+  const wikiDomain = (data.wiki || 'enwiki').replace('wiki', '');
+  const baseUrl = `https://${wikiDomain}.wikipedia.org`;
+  
+  // Page URL
+  const pageUrl = `${baseUrl}/wiki/${encodeURIComponent(title)}`;
+  
+  // User contribution link
+  const userLink = user !== 'Anonymous' 
+    ? `[${user}](${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)})`
+    : 'Anonymous';
 
-    // Start building the message
-    let messageParts = [];
+  // Start building the message
+  let messageParts = [];
+  let eventType = data.type;
 
-    // Handle different event types
-    switch (data.type) {
-      case 'edit':
-        messageParts.push(`✏️ *Edit* on ${data.wiki}`);
-        
-        // Generate diff URL
-        if (data.revid) {
-          let diffUrl;
-          if (data.old_revid) {
-            diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
-          } else {
-            diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}`;
+  // Handle different event types
+  switch (data.type) {
+    case 'edit':
+      messageParts.push(`✏️ *Edit* on ${data.wiki}`);
+      if (data.revid && data.old_revid) {
+        const diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
+        messageParts.push(`🔀 [View changes](${diffUrl})`);
+      }
+      if (data.comment) {
+        messageParts.push(`📝 Edit summary: ${data.comment}`);
+      }
+      break;
+
+    case 'new':
+      messageParts.push(`✨ *New page* on ${data.wiki}`);
+      if (data.comment) {
+        messageParts.push(`📝 Creation reason: ${data.comment}`);
+      }
+      break;
+
+    case 'log':
+      eventType = `log ${data.log_type}`;
+      switch (data.log_type) {
+        case 'delete':
+          messageParts.push(`🗑️ *Page deletion* on ${data.wiki}`);
+          if (data.log_params?.count) {
+            messageParts.push(`🔢 Pages affected: ${data.log_params.count}`);
           }
-          messageParts.push(`🔀 [View changes](${diffUrl})`);
-        }
-        
-        if (data.comment) {
-          messageParts.push(`📝 Edit summary: ${data.comment}`);
-        }
-        break;
+          break;
+        case 'block':
+          messageParts.push(`⛔ *User block* on ${data.wiki}`);
+          if (data.log_params?.duration) {
+            messageParts.push(`⏱️ Duration: ${data.log_params.duration}`);
+          }
+          break;
+        case 'move':
+          messageParts.push(`↔️ *Page move* on ${data.wiki}`);
+          if (data.log_params?.target_title) {
+            const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title)}`;
+            messageParts.push(`➡️ Moved to: [${data.log_params.target_title}](${targetUrl})`);
+          }
+          break;
+        case 'protect':
+          messageParts.push(`🛡️ *Protection change* on ${data.wiki}`);
+          if (data.log_params?.description) {
+            messageParts.push(`📝 Reason: ${data.log_params.description}`);
+          }
+          break;
+        default:
+          messageParts.push(`📋 *Log event (${data.log_type})* on ${data.wiki}`);
+      }
+      if (data.log_comment) {
+        messageParts.push(`💬 Log comment: ${data.log_comment}`);
+      }
+      break;
 
-      case 'new':
-        messageParts.push(`✨ *New page* on ${data.wiki}`);
-        if (data.comment) {
-          messageParts.push(`📝 Creation reason: ${data.comment}`);
-        }
-        break;
+    case 'move':
+      messageParts.push(`↔️ *Page move* on ${data.wiki}`);
+      if (data.target_title) {
+        const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title)}`;
+        messageParts.push(`➡️ Moved to: [${data.target_title}](${targetUrl})`);
+      }
+      if (data.comment) {
+        messageParts.push(`📝 Reason: ${data.comment}`);
+      }
+      break;
 
-      case 'log':
-        switch (data.log_type) {
-          case 'delete':
-            messageParts.push(`🗑️ *Page deletion* on ${data.wiki}`);
-            if (data.log_params?.count) {
-              messageParts.push(`🔢 Pages affected: ${data.log_params.count}`);
-            }
-            break;
-          case 'block':
-            messageParts.push(`⛔ *User block* on ${data.wiki}`);
-            if (data.log_params?.duration) {
-              messageParts.push(`⏱️ Duration: ${data.log_params.duration}`);
-            }
-            break;
-          case 'move':
-            messageParts.push(`↔️ *Page move* on ${data.wiki}`);
-            if (data.log_params?.target_title) {
-              const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title)}`;
-              messageParts.push(`➡️ Moved to: [${data.log_params.target_title}](${targetUrl})`);
-            }
-            break;
-          case 'protect':
-            messageParts.push(`🛡️ *Protection change* on ${data.wiki}`);
-            if (data.log_params?.description) {
-              messageParts.push(`📝 Reason: ${data.log_params.description}`);
-            }
-            break;
-          default:
-            messageParts.push(`📋 *Log event (${data.log_type})* on ${data.wiki}`);
-        }
-        if (data.log_comment) {
-          messageParts.push(`💬 Log comment: ${data.log_comment}`);
-        }
-        break;
-
-      case 'move':
-        messageParts.push(`↔️ *Page move* on ${data.wiki}`);
-        if (data.target_title) {
-          const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title)}`;
-          messageParts.push(`➡️ Moved to: [${data.target_title}](${targetUrl})`);
-        }
-        if (data.comment) {
-          messageParts.push(`📝 Reason: ${data.comment}`);
-        }
-        break;
-
-      default:
-        messageParts.push(`🔔 *${data.type}* on ${data.wiki}`);
-    }
-
-    // Common message parts for all events
-    messageParts.push(
-      `📄 Page: [${title}](${pageUrl})`,
-      `👤 User: ${userLink}`
-    );
-
-    // Size changes for edits/new pages
-    if (data.type === 'edit' && data.length?.new && data.length?.old) {
-      const byteChange = data.length.new - data.length.old;
-      messageParts.push(`📊 Size change: ${byteChange >= 0 ? '+' : ''}${byteChange} bytes`);
-    } else if (data.type === 'new' && data.length?.new) {
-      messageParts.push(`📊 Initial size: ${data.length.new} bytes`);
-    }
-
-    // Send the formatted message
-    bot.sendMessage(chatId, messageParts.join('\n'), {
-      parse_mode: 'Markdown',
-      disable_web_page_preview: true
-    }).catch(err => {
-      console.error(`Failed to send to group ${chatId}:`, err.message);
-    });
-
-  } catch (err) {
-    console.error('Error generating notification:', err);
+    default:
+      messageParts.push(`🔔 *${data.type}* on ${data.wiki}`);
   }
+
+  // Common message parts for all events
+  messageParts.push(
+    `📄 Page: [${title}](${pageUrl})`,
+    `👤 User: ${userLink}`
+  );
+
+  // For edits, show byte changes if available
+  if (data.type === 'edit' && data.length && data.old_length) {
+    const byteChange = data.length.new - data.length.old;
+    const changeSymbol = byteChange >= 0 ? '+' : '';
+    messageParts.push(`📊 Size change: ${changeSymbol}${byteChange} bytes`);
+  }
+
+  // For new pages, show initial size if available
+  if (data.type === 'new' && data.length) {
+    messageParts.push(`📊 Initial size: ${data.length.new} bytes`);
+  }
+
+  // Send the formatted message
+  bot.sendMessage(chatId, messageParts.join('\n'), {
+    parse_mode: 'Markdown',
+    disable_web_page_preview: true
+  }).catch(err => {
+    console.error(`Failed to send to group ${chatId}:`, err.message);
+  });
 }
 
-// Command handlers
+// Command handlers with suggestions
 const commands = [
   { command: 'start', description: 'Start the bot' },
   { command: 'help', description: 'Show help information' },
   { command: 'setwiki', description: 'Set wiki to monitor (e.g. enwiki)' },
   { command: 'setevents', description: 'Set event types (edit, new, delete)' },
   { command: 'showconfig', description: 'Show current configuration' },
-  { command: 'status', description: 'Check bot status' },
-  { command: 'off', description: 'Pause notifications' },
-  { command: 'on', description: 'Resume notifications' }
+  { command: 'status', description: 'Check bot status in this group' },
+  { command: 'off', description: 'Pause notifications in this group' },
+  { command: 'on', description: 'Resume notifications in this group' }
 ];
 
 // Set bot commands
@@ -422,6 +402,7 @@ bot.onText(/\/on/, (msg) => {
 
 // Admin check function
 function isAdmin(userId) {
+  // Allow all users if no admin IDs specified
   if (config.adminIds.length === 0) return true;
   return config.adminIds.includes(userId.toString());
 }
