@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Wikimedia Event Monitor Telegram Bot",
   "main": "bot.js",
+  "type": "module",
   "scripts": {
     "start": "node bot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -11,7 +12,7 @@
     "eventsource": "^2.0.2",
     "node-telegram-bot-api": "^0.61.0",
     "dotenv": "^16.3.1",
-    "node-fetch": "^3.3.2"
+    "got": "^12.6.1"
   },
   "engines": {
     "node": ">=18.0.0"
