@@ -36,6 +36,8 @@
   },
   "6935254252": {
     "wiki": "bnwiki",
-    "events": []
+    "events": [
+      "new"
+    ]
   }
 }
