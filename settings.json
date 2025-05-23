@@ -32,6 +32,8 @@
   },
   "7156328447": {
     "wiki": "enwiki",
-    "events": []
+    "events": [
+      "new"
+    ]
   }
 }
