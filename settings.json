@@ -10,8 +10,8 @@
   "-1002553666220": {
     "wiki": "bnwikibooks",
     "events": [
-      "edit,",
-      "new,",
+      "edit",
+      "new",
       "delete"
     ]
   }
