@@ -28,6 +28,10 @@ Object.keys(settings).forEach(chatId => {
 
 console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || 'none');
 
+// Event deduplication tracking
+const processedEvents = new Set();
+const MAX_PROCESSED_EVENTS = 1000; // Keep track of last 1000 events to prevent memory issues
+
 // Initialize Wikimedia EventStream
 let eventSource;
 
@@ -46,6 +50,23 @@ function connectToEventStream() {
   eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
+      
+      // Create a unique identifier for this event
+      const eventId = `${data.meta?.dt || Date.now()}-${data.wiki}-${data.title}-${data.type}-${data.user || data.performer?.user_text || ''}`;
+      
+      // Skip if we've already processed this event
+      if (processedEvents.has(eventId)) {
+        return;
+      }
+      
+      // Add to processed events and clean up if needed
+      processedEvents.add(eventId);
+      if (processedEvents.size > MAX_PROCESSED_EVENTS) {
+        // Remove the oldest event when we reach the limit
+        const first = processedEvents.values().next().value;
+        processedEvents.delete(first);
+      }
+
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
