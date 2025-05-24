@@ -15,7 +15,7 @@ const config = {
 const bot = new TelegramBot(config.telegramToken, {
   polling: true,
   request: {
-    timeout: 10000
+    timeout: 20000
   }
 });
 
