@@ -30,10 +30,40 @@ console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || '
 
 // Event deduplication tracking
 const processedEvents = new Set();
-const MAX_PROCESSED_EVENTS = 1000; // Keep track of last 1000 events to prevent memory issues
+const MAX_PROCESSED_EVENTS = 1000;
 
 // Initialize Wikimedia EventStream
 let eventSource;
+
+function getWikiBaseUrl(wiki) {
+  // Special case for Wikimedia Commons
+  if (wiki === 'commonswiki') {
+    return 'https://commons.wikimedia.org';
+  }
+  
+  // Special case for Wikidata
+  if (wiki === 'wikidatawiki') {
+    return 'https://www.wikidata.org';
+  }
+  
+  // Extract language code and project type
+  const matches = wiki.match(/^([a-z]{2,})(wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage|wikimedia|wiki)$/i);
+  
+  if (!matches) {
+    console.warn(`Unknown wiki format: ${wiki}, defaulting to Wikipedia`);
+    return `https://${wiki.replace('wiki', '')}.wikipedia.org`;
+  }
+  
+  const [, lang, project] = matches;
+  
+  // Handle projects that use subdomains (like en.wikibooks.org)
+  if (project && project !== 'wiki') {
+    return `https://${lang}.${project}.org`;
+  }
+  
+  // Default to Wikipedia
+  return `https://${lang}.wikipedia.org`;
+}
 
 function connectToEventStream() {
   eventSource = new EventSource(config.eventStreamUrl);
@@ -62,7 +92,6 @@ function connectToEventStream() {
       // Add to processed events and clean up if needed
       processedEvents.add(eventId);
       if (processedEvents.size > MAX_PROCESSED_EVENTS) {
-        // Remove the oldest event when we reach the limit
         const first = processedEvents.values().next().value;
         processedEvents.delete(first);
       }
@@ -87,11 +116,12 @@ function connectToEventStream() {
 function sendNotification(chatId, data) {
   const title = data.title || data.log_title || 'Unknown';
   const user = data.user || data.performer?.user_text || 'Anonymous';
-  const wikiDomain = (data.wiki || 'enwiki').replace('wiki', '');
-  const baseUrl = `https://${wikiDomain}.wikipedia.org`;
+  const wiki = data.wiki || 'enwiki';
+  const baseUrl = getWikiBaseUrl(wiki);
   
-  // Page URL
-  const pageUrl = `${baseUrl}/wiki/${encodeURIComponent(title)}`;
+  // Page URL - handle special titles that might need encoding
+  const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
+  const pageUrl = `${baseUrl}/wiki/${encodedTitle}`;
   
   // User contribution link
   const userLink = user !== 'Anonymous' 
@@ -105,7 +135,7 @@ function sendNotification(chatId, data) {
   // Handle different event types
   switch (data.type) {
     case 'edit':
-      messageParts.push(`✏️ *Edit* on ${data.wiki}`);
+      messageParts.push(`✏️ *Edit* on ${wiki}`);
       if (data.revid && data.old_revid) {
         const diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
         messageParts.push(`🔀 [View changes](${diffUrl})`);
@@ -116,7 +146,7 @@ function sendNotification(chatId, data) {
       break;
 
     case 'new':
-      messageParts.push(`✨ *New page* on ${data.wiki}`);
+      messageParts.push(`✨ *New page* on ${wiki}`);
       if (data.comment) {
         messageParts.push(`📝 Creation reason: ${data.comment}`);
       }
@@ -126,32 +156,32 @@ function sendNotification(chatId, data) {
       eventType = `log ${data.log_type}`;
       switch (data.log_type) {
         case 'delete':
-          messageParts.push(`🗑️ *Page deletion* on ${data.wiki}`);
+          messageParts.push(`🗑️ *Page deletion* on ${wiki}`);
           if (data.log_params?.count) {
             messageParts.push(`🔢 Pages affected: ${data.log_params.count}`);
           }
           break;
         case 'block':
-          messageParts.push(`⛔ *User block* on ${data.wiki}`);
+          messageParts.push(`⛔ *User block* on ${wiki}`);
           if (data.log_params?.duration) {
             messageParts.push(`⏱️ Duration: ${data.log_params.duration}`);
           }
           break;
         case 'move':
-          messageParts.push(`↔️ *Page move* on ${data.wiki}`);
+          messageParts.push(`↔️ *Page move* on ${wiki}`);
           if (data.log_params?.target_title) {
-            const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title)}`;
+            const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title.replace(/ /g, '_'))}`;
             messageParts.push(`➡️ Moved to: [${data.log_params.target_title}](${targetUrl})`);
           }
           break;
         case 'protect':
-          messageParts.push(`🛡️ *Protection change* on ${data.wiki}`);
+          messageParts.push(`🛡️ *Protection change* on ${wiki}`);
           if (data.log_params?.description) {
             messageParts.push(`📝 Reason: ${data.log_params.description}`);
           }
           break;
         default:
-          messageParts.push(`📋 *Log event (${data.log_type})* on ${data.wiki}`);
+          messageParts.push(`📋 *Log event (${data.log_type})* on ${wiki}`);
       }
       if (data.log_comment) {
         messageParts.push(`💬 Log comment: ${data.log_comment}`);
@@ -159,9 +189,9 @@ function sendNotification(chatId, data) {
       break;
 
     case 'move':
-      messageParts.push(`↔️ *Page move* on ${data.wiki}`);
+      messageParts.push(`↔️ *Page move* on ${wiki}`);
       if (data.target_title) {
-        const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title)}`;
+        const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title.replace(/ /g, '_'))}`;
         messageParts.push(`➡️ Moved to: [${data.target_title}](${targetUrl})`);
       }
       if (data.comment) {
@@ -170,7 +200,7 @@ function sendNotification(chatId, data) {
       break;
 
     default:
-      messageParts.push(`🔔 *${data.type}* on ${data.wiki}`);
+      messageParts.push(`🔔 *${data.type}* on ${wiki}`);
   }
 
   // Common message parts for all events
@@ -258,10 +288,10 @@ bot.onText(/\/setwiki (.+)/, (msg, match) => {
 
   const wiki = match[1].trim();
   
-  // Validate wiki format (e.g. enwiki, bnwiki)
-  if (!wiki.match(/^[a-z]{2,}wiki$/)) {
+  // Validate wiki format (e.g. enwiki, bnwikibooks)
+  if (!wiki.match(/^[a-z]{2,}(wiki|wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage)$/)) {
     return bot.sendMessage(chatId, 
-      '⚠️ *Invalid wiki format.* Please use format like "enwiki", "bnwiki" etc.',
+      '⚠️ *Invalid wiki format.* Please use format like "enwiki", "bnwikibooks" etc.',
       { parse_mode: 'Markdown' });
   }
 
