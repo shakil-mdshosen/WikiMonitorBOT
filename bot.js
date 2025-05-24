@@ -3,6 +3,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import EventSource from 'eventsource';
 import { loadSettings, saveSettings } from './utils/settings.js';
 import { updateGithub } from './utils/github.js';
+import { isBotAccount } from './utils/botCheck.js';
 
 // Configuration
 const config = {
@@ -90,6 +91,12 @@ function connectToEventStream() {
   eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
+
+      // Skip events from bot accounts
+      if (isBotAccount(data)) {
+        return;
+      }
+
       const eventId = `${data.meta?.dt || Date.now()}-${data.wiki}-${data.title}-${data.type}-${data.user || data.performer?.user_text || ''}`;
       
       if (processedEvents.has(eventId)) return;
