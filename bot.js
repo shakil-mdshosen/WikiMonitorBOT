@@ -23,7 +23,7 @@ const bot = new TelegramBot(config.telegramToken, {
 const settings = loadSettings();
 const groupStatus = {};
 Object.keys(settings).forEach(chatId => {
-  groupStatus[chatId] = settings[chatId].status || 'active'; // Default to active
+  groupStatus[chatId] = settings[chatId].status || 'active';
 });
 
 console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || 'none');
@@ -36,17 +36,13 @@ const MAX_PROCESSED_EVENTS = 1000;
 let eventSource;
 
 function getWikiBaseUrl(wiki) {
-  // Special case for Wikimedia Commons
   if (wiki === 'commonswiki') {
     return 'https://commons.wikimedia.org';
   }
-  
-  // Special case for Wikidata
   if (wiki === 'wikidatawiki') {
     return 'https://www.wikidata.org';
   }
   
-  // Extract language code and project type
   const matches = wiki.match(/^([a-z]{2,})(wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage|wikimedia|wiki)$/i);
   
   if (!matches) {
@@ -56,13 +52,27 @@ function getWikiBaseUrl(wiki) {
   
   const [, lang, project] = matches;
   
-  // Handle projects that use subdomains (like en.wikibooks.org)
   if (project && project !== 'wiki') {
     return `https://${lang}.${project}.org`;
   }
   
-  // Default to Wikipedia
   return `https://${lang}.wikipedia.org`;
+}
+
+async function isAdmin(bot, chatId, userId) {
+  // Always allow in private chats
+  if (chatId > 0) return true;
+  
+  // Check if user is in adminIds from config
+  if (config.adminIds.includes(userId.toString())) return true;
+  
+  try {
+    const admins = await bot.getChatAdministrators(chatId);
+    return admins.some(admin => admin.user.id.toString() === userId.toString());
+  } catch (err) {
+    console.error(`Failed to check admin status for ${userId} in ${chatId}:`, err);
+    return false;
+  }
 }
 
 function connectToEventStream() {
@@ -80,16 +90,10 @@ function connectToEventStream() {
   eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      
-      // Create a unique identifier for this event
       const eventId = `${data.meta?.dt || Date.now()}-${data.wiki}-${data.title}-${data.type}-${data.user || data.performer?.user_text || ''}`;
       
-      // Skip if we've already processed this event
-      if (processedEvents.has(eventId)) {
-        return;
-      }
+      if (processedEvents.has(eventId)) return;
       
-      // Add to processed events and clean up if needed
       processedEvents.add(eventId);
       if (processedEvents.size > MAX_PROCESSED_EVENTS) {
         const first = processedEvents.values().next().value;
@@ -99,7 +103,6 @@ function connectToEventStream() {
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
-      // Find matching groups that are active
       Object.entries(settings).forEach(([chatId, groupConfig]) => {
         if (groupStatus[chatId] === 'active' && 
             groupConfig.wiki === wiki && 
@@ -118,21 +121,15 @@ function sendNotification(chatId, data) {
   const user = data.user || data.performer?.user_text || 'Anonymous';
   const wiki = data.wiki || 'enwiki';
   const baseUrl = getWikiBaseUrl(wiki);
-  
-  // Page URL - handle special titles that might need encoding
   const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
   const pageUrl = `${baseUrl}/wiki/${encodedTitle}`;
-  
-  // User contribution link
   const userLink = user !== 'Anonymous' 
     ? `[${user}](${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)})`
     : 'Anonymous';
 
-  // Start building the message
   let messageParts = [];
   let eventType = data.type;
 
-  // Handle different event types
   switch (data.type) {
     case 'edit':
       messageParts.push(`✏️ *Edit* on ${wiki}`);
@@ -144,14 +141,12 @@ function sendNotification(chatId, data) {
         messageParts.push(`📝 Edit summary: ${data.comment}`);
       }
       break;
-
     case 'new':
       messageParts.push(`✨ *New page* on ${wiki}`);
       if (data.comment) {
         messageParts.push(`📝 Creation reason: ${data.comment}`);
       }
       break;
-
     case 'log':
       eventType = `log ${data.log_type}`;
       switch (data.log_type) {
@@ -187,7 +182,6 @@ function sendNotification(chatId, data) {
         messageParts.push(`💬 Log comment: ${data.log_comment}`);
       }
       break;
-
     case 'move':
       messageParts.push(`↔️ *Page move* on ${wiki}`);
       if (data.target_title) {
@@ -198,30 +192,25 @@ function sendNotification(chatId, data) {
         messageParts.push(`📝 Reason: ${data.comment}`);
       }
       break;
-
     default:
       messageParts.push(`🔔 *${data.type}* on ${wiki}`);
   }
 
-  // Common message parts for all events
   messageParts.push(
     `📄 Page: [${title}](${pageUrl})`,
     `👤 User: ${userLink}`
   );
 
-  // For edits, show byte changes if available
   if (data.type === 'edit' && data.length && data.old_length) {
     const byteChange = data.length.new - data.length.old;
     const changeSymbol = byteChange >= 0 ? '+' : '';
     messageParts.push(`📊 Size change: ${changeSymbol}${byteChange} bytes`);
   }
 
-  // For new pages, show initial size if available
   if (data.type === 'new' && data.length) {
     messageParts.push(`📊 Initial size: ${data.length.new} bytes`);
   }
 
-  // Send the formatted message
   bot.sendMessage(chatId, messageParts.join('\n'), {
     parse_mode: 'Markdown',
     disable_web_page_preview: true
@@ -230,7 +219,6 @@ function sendNotification(chatId, data) {
   });
 }
 
-// Command handlers with suggestions
 const commands = [
   { command: 'start', description: 'Start the bot' },
   { command: 'help', description: 'Show help information' },
@@ -242,7 +230,6 @@ const commands = [
   { command: 'on', description: 'Resume notifications in this group' }
 ];
 
-// Set bot commands
 bot.setMyCommands(commands);
 
 bot.onText(/\/start/, (msg) => {
@@ -277,25 +264,23 @@ bot.onText(/\/help/, (msg) => {
   );
 });
 
-bot.onText(/\/setwiki (.+)/, (msg, match) => {
+bot.onText(/\/setwiki (.+)/, async (msg, match) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
   
-  if (!isAdmin(fromId)) {
-    return bot.sendMessage(chatId, '🚫 *Error:* This command is only available for admins', 
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
       { parse_mode: 'Markdown' });
   }
 
   const wiki = match[1].trim();
   
-  // Validate wiki format (e.g. enwiki, bnwikibooks)
   if (!wiki.match(/^[a-z]{2,}(wiki|wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage)$/)) {
     return bot.sendMessage(chatId, 
       '⚠️ *Invalid wiki format.* Please use format like "enwiki", "bnwikibooks" etc.',
       { parse_mode: 'Markdown' });
   }
 
-  // Initialize group config if not exists
   if (!settings[chatId]) {
     settings[chatId] = { wiki: '', events: [], status: 'active' };
   }
@@ -318,12 +303,12 @@ bot.onText(/\/setwiki (.+)/, (msg, match) => {
   }
 });
 
-bot.onText(/\/setevents (.+)/, (msg, match) => {
+bot.onText(/\/setevents (.+)/, async (msg, match) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
   
-  if (!isAdmin(fromId)) {
-    return bot.sendMessage(chatId, '🚫 *Error:* This command is only available for admins', 
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
       { parse_mode: 'Markdown' });
   }
 
@@ -338,7 +323,6 @@ bot.onText(/\/setevents (.+)/, (msg, match) => {
       { parse_mode: 'Markdown' });
   }
   
-  // Verify we have a wiki set first
   if (!settings[chatId]?.wiki) {
     return bot.sendMessage(chatId, 
       '⚠️ *Error:* Please set a wiki first with /setwiki',
@@ -387,18 +371,17 @@ bot.onText(/\/status/, (msg) => {
   );
 });
 
-bot.onText(/\/off/, (msg) => {
+bot.onText(/\/off/, async (msg) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
   
-  if (!isAdmin(fromId)) {
-    return bot.sendMessage(chatId, '🚫 *Error:* This command is only available for admins', 
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can pause notifications', 
       { parse_mode: 'Markdown' });
   }
 
   groupStatus[chatId] = 'paused';
   
-  // Update settings with status
   if (!settings[chatId]) {
     settings[chatId] = { status: 'paused' };
   } else {
@@ -419,18 +402,17 @@ bot.onText(/\/off/, (msg) => {
   }
 });
 
-bot.onText(/\/on/, (msg) => {
+bot.onText(/\/on/, async (msg) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
   
-  if (!isAdmin(fromId)) {
-    return bot.sendMessage(chatId, '🚫 *Error:* This command is only available for admins', 
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can resume notifications', 
       { parse_mode: 'Markdown' });
   }
 
   groupStatus[chatId] = 'active';
   
-  // Update settings with status
   if (!settings[chatId]) {
     settings[chatId] = { status: 'active' };
   } else {
@@ -450,13 +432,6 @@ bot.onText(/\/on/, (msg) => {
       { parse_mode: 'Markdown' });
   }
 });
-
-// Admin check function
-function isAdmin(userId) {
-  // Allow all users if no admin IDs specified
-  if (config.adminIds.length === 0) return true;
-  return config.adminIds.includes(userId.toString());
-}
 
 // Start the bot
 connectToEventStream();
