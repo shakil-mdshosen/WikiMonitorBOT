@@ -4,7 +4,11 @@
     "events": [
       "edit",
       "new",
-      "log"
+      "delete",
+      "log",
+      "move",
+      "block",
+      "protect"
     ],
     "status": "active"
   },
