@@ -79,7 +79,12 @@ async function isAdmin(bot, chatId, userId) {
 }
 
 function connectToEventStream() {
-  eventSource = new EventSource(config.eventStreamUrl);
+  // Add User-Agent identification
+  eventSource = new EventSource(config.eventStreamUrl, {
+    headers: {
+      'User-Agent': 'WikimediaMonitorBot/1.0 (+https://yourdomain.com/bot)'
+    }
+  });
 
   eventSource.onopen = () => {
     console.log('✅ Connected to Wikimedia EventStream');
@@ -87,30 +92,34 @@ function connectToEventStream() {
   };
 
   eventSource.onerror = (err) => {
-    console.error('❌ EventStream error:', err);
-    
-    // Extract the Retry-After header from the error if available
-    let retryAfter = 5; // default 5 seconds for 429 errors
-    if (err.event?.target?.responseHeaders?.['retry-after']) {
-      retryAfter = parseInt(err.event.target.responseHeaders['retry-after']);
-    } else if (err.status === 429) {
-      // If we get a 429 without Retry-After, use default
-      retryAfter = 5;
+    // First close the existing connection
+    if (eventSource) {
+      eventSource.close();
+    }
+
+    // Handle different error types
+    let retryAfter;
+    if (err.status === 429) {
+      // For 429 errors, prioritize the Retry-After header (165 seconds in your case)
+      retryAfter = err.event?.target?.responseHeaders?.['retry-after'] || 
+                  err.response?.headers?.['retry-after'] || 
+                  165; // Default to 165s if header missing
     } else {
-      // For non-429 errors, use shorter 2s delay
+      // For non-429 errors, use faster retry
       retryAfter = 2;
     }
 
-    // Calculate delay with some randomness to avoid thundering herd
+    // Calculate delay with safety limits
     const retryDelay = Math.min(
-      60000, // Maximum 60 second delay
+      300000, // Cap at 5 minutes (300 seconds)
       Math.max(
-        1000, // Minimum 1 second delay
-        retryAfter * 1000 + Math.random() * 2000 // Add up to 2s jitter
+        2000, // Minimum 2 second delay
+        parseInt(retryAfter) * 1000 // Convert to milliseconds
       )
     );
 
-    notifyError(err, `EventStream connection error. Retrying in ${Math.ceil(retryDelay/1000)}s`);
+    console.error(`❌ EventStream error (Status: ${err.status}). Retrying in ${retryDelay/1000}s...`);
+    notifyError(err, `Connection error (HTTP ${err.status}). Retrying in ${retryDelay/1000} seconds`);
     
     setTimeout(() => {
       connectToEventStream();
