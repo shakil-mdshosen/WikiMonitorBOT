@@ -89,7 +89,15 @@ function connectToEventStream() {
   eventSource.onerror = (err) => {
     console.error('❌ EventStream error:', err);
     notifyError(err, 'EventStream connection error');
-    setTimeout(connectToEventStream, 5000);
+    
+    // Optimized rate limit handling with shorter delays
+    const retryDelay = err.status === 429 ? 
+      Math.min(30000, 1000 + (Math.random() * 3000)) : // 1-4s for rate limits
+      2000; // 2s for other errors
+    
+    setTimeout(() => {
+      connectToEventStream();
+    }, retryDelay);
   };
 
   eventSource.onmessage = (event) => {
