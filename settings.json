@@ -65,7 +65,9 @@
   },
   "6174802280": {
     "wiki": "metawiki",
-    "events": [],
+    "events": [
+      "log"
+    ],
     "status": "active"
   }
 }
