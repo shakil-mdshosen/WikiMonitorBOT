@@ -4,13 +4,13 @@ import EventSource from 'eventsource';
 import { loadSettings, saveSettings } from './utils/settings.js';
 import { updateGithub } from './utils/github.js';
 import { isBotAccount } from './utils/botCheck.js';
+import { notifyError, notifyConfigChange, notifySystemEvent } from './utils/notifier.js';
 
 // Configuration
 const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN,
   eventStreamUrl: 'https://stream.wikimedia.org/v2/stream/recentchange',
-  adminIds: process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : [],
-  notifyAdminThreshold: process.env.NOTIFY_ADMIN_THRESHOLD || 5
+  adminIds: process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : []
 };
 
 // Initialize bot with polling
@@ -33,10 +33,6 @@ console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || '
 // Event deduplication tracking
 const processedEvents = new Set();
 const MAX_PROCESSED_EVENTS = 1000;
-
-// Error tracking for admin notifications
-const errorCounts = {};
-const MAX_ERRORS_BEFORE_NOTIFY = config.notifyAdminThreshold;
 
 // Initialize Wikimedia EventStream
 let eventSource;
@@ -77,29 +73,8 @@ async function isAdmin(bot, chatId, userId) {
     return admins.some(admin => admin.user.id.toString() === userId.toString());
   } catch (err) {
     console.error(`Failed to check admin status for ${userId} in ${chatId}:`, err);
+    notifyError(err, `Failed to check admin status for ${userId} in ${chatId}`);
     return false;
-  }
-}
-
-function notifyAdmins(errorMessage) {
-  if (!config.adminIds.length) return;
-
-  // Increment error count for this message type
-  errorCounts[errorMessage] = (errorCounts[errorMessage] || 0) + 1;
-
-  // Only notify if we've reached the threshold
-  if (errorCounts[errorMessage] >= MAX_ERRORS_BEFORE_NOTIFY) {
-    const message = `⚠️ *Admin Alert* ⚠️\n` +
-      `Error occurred ${errorCounts[errorMessage]} times:\n` +
-      `\`\`\`\n${errorMessage}\n\`\`\``;
-
-    config.adminIds.forEach(adminId => {
-      bot.sendMessage(adminId, message, { parse_mode: 'Markdown' })
-        .catch(err => console.error('Failed to send admin notification:', err));
-    });
-
-    // Reset counter after notification
-    errorCounts[errorMessage] = 0;
   }
 }
 
@@ -108,12 +83,12 @@ function connectToEventStream() {
 
   eventSource.onopen = () => {
     console.log('✅ Connected to Wikimedia EventStream');
+    notifySystemEvent('EventStream Connected', 'Successfully connected to Wikimedia EventStream');
   };
 
   eventSource.onerror = (err) => {
-    const errorMsg = `EventStream error: ${err.message || err}`;
-    console.error('❌ ' + errorMsg);
-    notifyAdmins(errorMsg);
+    console.error('❌ EventStream error:', err);
+    notifyError(err, 'EventStream connection error');
     setTimeout(connectToEventStream, 5000);
   };
 
@@ -139,7 +114,7 @@ function connectToEventStream() {
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
-      Object.entries(settings).forEach(([chatId, groupConfig]) => {
+      Object.entry(settings).forEach(([chatId, groupConfig]) => {
         if (groupStatus[chatId] === 'active' && 
             groupConfig.wiki === wiki && 
             groupConfig.events.includes(type)) {
@@ -147,9 +122,8 @@ function connectToEventStream() {
         }
       });
     } catch (err) {
-      const errorMsg = `Error processing event: ${err.message || err}`;
-      console.error(errorMsg);
-      notifyAdmins(errorMsg);
+      console.error('Error processing event:', err);
+      notifyError(err, 'Error processing EventStream message');
     }
   };
 }
@@ -253,9 +227,8 @@ function sendNotification(chatId, data) {
     parse_mode: 'Markdown',
     disable_web_page_preview: true
   }).catch(err => {
-    const errorMsg = `Failed to send to group ${chatId}: ${err.message}`;
-    console.error(errorMsg);
-    notifyAdmins(errorMsg);
+    console.error(`Failed to send to group ${chatId}:`, err.message);
+    notifyError(err, `Failed to send message to group ${chatId}`);
   });
 }
 
@@ -335,6 +308,13 @@ bot.onText(/\/setwiki (.+)/, async (msg, match) => {
         `✅ *Success!* Wiki set to \`${wiki}\` ${statusMsg}. ` +
         `Now set events with /setevents`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'setwiki',
+        changes: { wiki }
+      });
     });
   } else {
     bot.sendMessage(chatId, 
@@ -377,6 +357,13 @@ bot.onText(/\/setevents (.+)/, async (msg, match) => {
       bot.sendMessage(chatId,
         `✅ *Success!* Events set to: \`${events.join(', ')}\` ${statusMsg}`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'setevents',
+        changes: { events }
+      });
     });
   } else {
     bot.sendMessage(chatId,
@@ -434,6 +421,13 @@ bot.onText(/\/off/, async (msg) => {
       bot.sendMessage(chatId, 
         `⏸ *Notifications paused* ${statusMsg}. Use /on to resume.`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'pause',
+        changes: { status: 'paused' }
+      });
     });
   } else {
     bot.sendMessage(chatId, 
@@ -465,6 +459,13 @@ bot.onText(/\/on/, async (msg) => {
       bot.sendMessage(chatId, 
         `✅ *Notifications resumed* ${statusMsg}. Use /off to pause.`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'resume',
+        changes: { status: 'active' }
+      });
     });
   } else {
     bot.sendMessage(chatId, 
@@ -480,6 +481,7 @@ console.log('🤖 Bot is running and ready for commands...');
 // Cleanup on exit
 process.on('SIGINT', () => {
   eventSource?.close();
+  notifySystemEvent('Bot Shutdown', 'Bot is shutting down');
   console.log('🛑 Bot shutting down...');
   process.exit();
 });
