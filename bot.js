@@ -114,7 +114,7 @@ function connectToEventStream() {
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
-      Object.entrys(settings).forEach(([chatId, groupConfig]) => {
+      Object.entries(settings).forEach(([chatId, groupConfig]) => {
         if (groupStatus[chatId] === 'active' && 
             groupConfig.wiki === wiki && 
             groupConfig.events.includes(type)) {
