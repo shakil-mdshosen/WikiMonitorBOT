@@ -15,9 +15,8 @@
   "-1002599867949": {
     "wiki": "bnwiki",
     "events": [
-      "edit",
-      "new",
-      "delete"
+      "log",
+      "block"
     ],
     "status": "active"
   },
