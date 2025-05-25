@@ -4,6 +4,7 @@ import EventSource from 'eventsource';
 import { loadSettings, saveSettings } from './utils/settings.js';
 import { updateGithub } from './utils/github.js';
 import { isBotAccount } from './utils/botCheck.js';
+import { notifyError, notifyConfigChange, notifySystemEvent } from './utils/notifier.js';
 
 // Configuration
 const config = {
@@ -72,6 +73,7 @@ async function isAdmin(bot, chatId, userId) {
     return admins.some(admin => admin.user.id.toString() === userId.toString());
   } catch (err) {
     console.error(`Failed to check admin status for ${userId} in ${chatId}:`, err);
+    notifyError(err, `Failed to check admin status for ${userId} in ${chatId}`);
     return false;
   }
 }
@@ -80,11 +82,13 @@ function connectToEventStream() {
   eventSource = new EventSource(config.eventStreamUrl);
 
   eventSource.onopen = () => {
-    console.log('âœ… Connected to Wikimedia EventStream');
+    console.log('✅ Connected to Wikimedia EventStream');
+    notifySystemEvent('EventStream Connected', 'Successfully connected to Wikimedia EventStream');
   };
 
   eventSource.onerror = (err) => {
-    console.error('âŒ EventStream error:', err);
+    console.error('❌ EventStream error:', err);
+    notifyError(err, 'EventStream connection error');
     setTimeout(connectToEventStream, 5000);
   };
 
@@ -110,7 +114,7 @@ function connectToEventStream() {
       const wiki = data.wiki || data.meta?.domain;
       const type = data.type === 'log' ? data.log_type : data.type;
 
-      Object.entries(settings).forEach(([chatId, groupConfig]) => {
+      Object.entrys(settings).forEach(([chatId, groupConfig]) => {
         if (groupStatus[chatId] === 'active' && 
             groupConfig.wiki === wiki && 
             groupConfig.events.includes(type)) {
@@ -119,6 +123,7 @@ function connectToEventStream() {
       });
     } catch (err) {
       console.error('Error processing event:', err);
+      notifyError(err, 'Error processing EventStream message');
     }
   };
 }
@@ -139,83 +144,83 @@ function sendNotification(chatId, data) {
 
   switch (data.type) {
     case 'edit':
-      messageParts.push(`âœï¸ *Edit* on ${wiki}`);
+      messageParts.push(`✏️ *Edit* on ${wiki}`);
       if (data.revid && data.old_revid) {
         const diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
-        messageParts.push(`ðŸ”€ [View changes](${diffUrl})`);
+        messageParts.push(`🔀 [View changes](${diffUrl})`);
       }
       if (data.comment) {
-        messageParts.push(`ðŸ“ Edit summary: ${data.comment}`);
+        messageParts.push(`📝 Edit summary: ${data.comment}`);
       }
       break;
     case 'new':
-      messageParts.push(`âœ¨ *New page* on ${wiki}`);
+      messageParts.push(`✨ *New page* on ${wiki}`);
       if (data.comment) {
-        messageParts.push(`ðŸ“ Creation reason: ${data.comment}`);
+        messageParts.push(`📝 Creation reason: ${data.comment}`);
       }
       break;
     case 'log':
       eventType = `log ${data.log_type}`;
       switch (data.log_type) {
         case 'delete':
-          messageParts.push(`ðŸ—‘ï¸ *Page deletion* on ${wiki}`);
+          messageParts.push(`🗑️ *Page deletion* on ${wiki}`);
           if (data.log_params?.count) {
-            messageParts.push(`ðŸ”¢ Pages affected: ${data.log_params.count}`);
+            messageParts.push(`🔢 Pages affected: ${data.log_params.count}`);
           }
           break;
         case 'block':
-          messageParts.push(`â›” *User block* on ${wiki}`);
+          messageParts.push(`⛔ *User block* on ${wiki}`);
           if (data.log_params?.duration) {
-            messageParts.push(`â±ï¸ Duration: ${data.log_params.duration}`);
+            messageParts.push(`⏱️ Duration: ${data.log_params.duration}`);
           }
           break;
         case 'move':
-          messageParts.push(`â†”ï¸ *Page move* on ${wiki}`);
+          messageParts.push(`↔️ *Page move* on ${wiki}`);
           if (data.log_params?.target_title) {
             const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title.replace(/ /g, '_'))}`;
-            messageParts.push(`âž¡ï¸ Moved to: [${data.log_params.target_title}](${targetUrl})`);
+            messageParts.push(`➡️ Moved to: [${data.log_params.target_title}](${targetUrl})`);
           }
           break;
         case 'protect':
-          messageParts.push(`ðŸ›¡ï¸ *Protection change* on ${wiki}`);
+          messageParts.push(`🛡️ *Protection change* on ${wiki}`);
           if (data.log_params?.description) {
-            messageParts.push(`ðŸ“ Reason: ${data.log_params.description}`);
+            messageParts.push(`📝 Reason: ${data.log_params.description}`);
           }
           break;
         default:
-          messageParts.push(`ðŸ“‹ *Log event (${data.log_type})* on ${wiki}`);
+          messageParts.push(`📋 *Log event (${data.log_type})* on ${wiki}`);
       }
       if (data.log_comment) {
-        messageParts.push(`ðŸ’¬ Log comment: ${data.log_comment}`);
+        messageParts.push(`💬 Log comment: ${data.log_comment}`);
       }
       break;
     case 'move':
-      messageParts.push(`â†”ï¸ *Page move* on ${wiki}`);
+      messageParts.push(`↔️ *Page move* on ${wiki}`);
       if (data.target_title) {
         const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title.replace(/ /g, '_'))}`;
-        messageParts.push(`âž¡ï¸ Moved to: [${data.target_title}](${targetUrl})`);
+        messageParts.push(`➡️ Moved to: [${data.target_title}](${targetUrl})`);
       }
       if (data.comment) {
-        messageParts.push(`ðŸ“ Reason: ${data.comment}`);
+        messageParts.push(`📝 Reason: ${data.comment}`);
       }
       break;
     default:
-      messageParts.push(`ðŸ”” *${data.type}* on ${wiki}`);
+      messageParts.push(`🔔 *${data.type}* on ${wiki}`);
   }
 
   messageParts.push(
-    `ðŸ“„ Page: [${title}](${pageUrl})`,
-    `ðŸ‘¤ User: ${userLink}`
+    `📄 Page: [${title}](${pageUrl})`,
+    `👤 User: ${userLink}`
   );
 
   if (data.type === 'edit' && data.length && data.old_length) {
     const byteChange = data.length.new - data.length.old;
     const changeSymbol = byteChange >= 0 ? '+' : '';
-    messageParts.push(`ðŸ“Š Size change: ${changeSymbol}${byteChange} bytes`);
+    messageParts.push(`📊 Size change: ${changeSymbol}${byteChange} bytes`);
   }
 
   if (data.type === 'new' && data.length) {
-    messageParts.push(`ðŸ“Š Initial size: ${data.length.new} bytes`);
+    messageParts.push(`📊 Initial size: ${data.length.new} bytes`);
   }
 
   bot.sendMessage(chatId, messageParts.join('\n'), {
@@ -223,6 +228,7 @@ function sendNotification(chatId, data) {
     disable_web_page_preview: true
   }).catch(err => {
     console.error(`Failed to send to group ${chatId}:`, err.message);
+    notifyError(err, `Failed to send message to group ${chatId}`);
   });
 }
 
@@ -241,7 +247,7 @@ bot.setMyCommands(commands);
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  const welcomeMsg = `ðŸ‘‹ *Welcome to Wikimedia Monitor Bot!*\n\n` +
+  const welcomeMsg = `👋 *Welcome to Wikimedia Monitor Bot!*\n\n` +
     `I monitor Wikimedia events and notify this group about changes.\n\n` +
     `*Available commands:*\n` +
     `${commands.map(cmd => `/${cmd.command} - ${cmd.description}`).join('\n')}\n\n` +
@@ -256,7 +262,7 @@ bot.onText(/\/start/, (msg) => {
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
   bot.sendMessage(chatId, 
-    `â„¹ï¸ *Help Menu*\n\n` +
+    `ℹ️ *Help Menu*\n\n` +
     `*Available commands:*\n` +
     `${commands.map(cmd => `/${cmd.command} - ${cmd.description}`).join('\n')}\n\n` +
     `*Supported event types:*\n` +
@@ -276,7 +282,7 @@ bot.onText(/\/setwiki (.+)/, async (msg, match) => {
   const fromId = msg.from.id.toString();
   
   if (!(await isAdmin(bot, chatId, fromId))) {
-    return bot.sendMessage(chatId, 'ðŸš« *Error:* Only group admins can change settings', 
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
       { parse_mode: 'Markdown' });
   }
 
@@ -284,7 +290,7 @@ bot.onText(/\/setwiki (.+)/, async (msg, match) => {
   
   if (!wiki.match(/^[a-z]{2,}(wiki|wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage)$/)) {
     return bot.sendMessage(chatId, 
-      'âš ï¸ *Invalid wiki format.* Please use format like "enwiki", "bnwikibooks" etc.',
+      '⚠️ *Invalid wiki format.* Please use format like "enwiki", "bnwikibooks" etc.',
       { parse_mode: 'Markdown' });
   }
 
@@ -299,13 +305,20 @@ bot.onText(/\/setwiki (.+)/, async (msg, match) => {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
       bot.sendMessage(chatId, 
-        `âœ… *Success!* Wiki set to \`${wiki}\` ${statusMsg}. ` +
+        `✅ *Success!* Wiki set to \`${wiki}\` ${statusMsg}. ` +
         `Now set events with /setevents`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'setwiki',
+        changes: { wiki }
+      });
     });
   } else {
     bot.sendMessage(chatId, 
-      'âŒ *Error:* Failed to save settings. Please try again.',
+      '❌ *Error:* Failed to save settings. Please try again.',
       { parse_mode: 'Markdown' });
   }
 });
@@ -315,7 +328,7 @@ bot.onText(/\/setevents (.+)/, async (msg, match) => {
   const fromId = msg.from.id.toString();
   
   if (!(await isAdmin(bot, chatId, fromId))) {
-    return bot.sendMessage(chatId, 'ðŸš« *Error:* Only group admins can change settings', 
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
       { parse_mode: 'Markdown' });
   }
 
@@ -325,14 +338,14 @@ bot.onText(/\/setevents (.+)/, async (msg, match) => {
   
   if (invalidEvents.length > 0) {
     return bot.sendMessage(chatId,
-      `âš ï¸ *Invalid event types:* ${invalidEvents.join(', ')}\n\n` +
+      `⚠️ *Invalid event types:* ${invalidEvents.join(', ')}\n\n` +
       `Valid events: ${validEvents.join(', ')}`,
       { parse_mode: 'Markdown' });
   }
   
   if (!settings[chatId]?.wiki) {
     return bot.sendMessage(chatId, 
-      'âš ï¸ *Error:* Please set a wiki first with /setwiki',
+      '⚠️ *Error:* Please set a wiki first with /setwiki',
       { parse_mode: 'Markdown' });
   }
   
@@ -342,12 +355,19 @@ bot.onText(/\/setevents (.+)/, async (msg, match) => {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
       bot.sendMessage(chatId,
-        `âœ… *Success!* Events set to: \`${events.join(', ')}\` ${statusMsg}`,
+        `✅ *Success!* Events set to: \`${events.join(', ')}\` ${statusMsg}`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'setevents',
+        changes: { events }
+      });
     });
   } else {
     bot.sendMessage(chatId,
-      'âŒ *Error:* Failed to save settings. Please try again.',
+      '❌ *Error:* Failed to save settings. Please try again.',
       { parse_mode: 'Markdown' });
   }
 });
@@ -358,10 +378,10 @@ bot.onText(/\/showconfig/, (msg) => {
   const status = groupStatus[chatId] || 'active';
   
   const message = `
-ðŸ”§ *Current Configuration:*
+🔧 *Current Configuration:*
 Wiki: \`${groupConfig.wiki || 'Not set'}\`
 Events: \`${groupConfig.events?.join(', ') || 'None'}\`
-Status: \`${status === 'active' ? 'Active âœ…' : 'Paused â¸'}\`
+Status: \`${status === 'active' ? 'Active ✅' : 'Paused ⏸'}\`
   `.trim();
   
   bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
@@ -372,7 +392,7 @@ bot.onText(/\/status/, (msg) => {
   const currentStatus = groupStatus[chatId] || 'active';
   
   bot.sendMessage(chatId, 
-    `ðŸ”˜ Current status: ${currentStatus === 'active' ? 'âœ… Active' : 'â¸ Paused'}\n` +
+    `🔘 Current status: ${currentStatus === 'active' ? '✅ Active' : '⏸ Paused'}\n` +
     `Use /off to pause or /on to resume notifications.`,
     { parse_mode: 'Markdown' }
   );
@@ -383,7 +403,7 @@ bot.onText(/\/off/, async (msg) => {
   const fromId = msg.from.id.toString();
   
   if (!(await isAdmin(bot, chatId, fromId))) {
-    return bot.sendMessage(chatId, 'ðŸš« *Error:* Only group admins can pause notifications', 
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can pause notifications', 
       { parse_mode: 'Markdown' });
   }
 
@@ -399,12 +419,19 @@ bot.onText(/\/off/, async (msg) => {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
       bot.sendMessage(chatId, 
-        `â¸ *Notifications paused* ${statusMsg}. Use /on to resume.`,
+        `⏸ *Notifications paused* ${statusMsg}. Use /on to resume.`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'pause',
+        changes: { status: 'paused' }
+      });
     });
   } else {
     bot.sendMessage(chatId, 
-      'âŒ *Error:* Failed to save settings. Please try again.',
+      '❌ *Error:* Failed to save settings. Please try again.',
       { parse_mode: 'Markdown' });
   }
 });
@@ -414,7 +441,7 @@ bot.onText(/\/on/, async (msg) => {
   const fromId = msg.from.id.toString();
   
   if (!(await isAdmin(bot, chatId, fromId))) {
-    return bot.sendMessage(chatId, 'ðŸš« *Error:* Only group admins can resume notifications', 
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can resume notifications', 
       { parse_mode: 'Markdown' });
   }
 
@@ -430,23 +457,31 @@ bot.onText(/\/on/, async (msg) => {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
       bot.sendMessage(chatId, 
-        `âœ… *Notifications resumed* ${statusMsg}. Use /off to pause.`,
+        `✅ *Notifications resumed* ${statusMsg}. Use /off to pause.`,
         { parse_mode: 'Markdown' });
+      notifyConfigChange({
+        chatId,
+        userId: fromId,
+        username: msg.from.username,
+        action: 'resume',
+        changes: { status: 'active' }
+      });
     });
   } else {
     bot.sendMessage(chatId, 
-      'âŒ *Error:* Failed to save settings. Please try again.',
+      '❌ *Error:* Failed to save settings. Please try again.',
       { parse_mode: 'Markdown' });
   }
 });
 
 // Start the bot
 connectToEventStream();
-console.log('ðŸ¤– Bot is running and ready for commands...');
+console.log('🤖 Bot is running and ready for commands...');
 
 // Cleanup on exit
 process.on('SIGINT', () => {
   eventSource?.close();
-  console.log('ðŸ›‘ Bot shutting down...');
+  notifySystemEvent('Bot Shutdown', 'Bot is shutting down');
+  console.log('🛑 Bot shutting down...');
   process.exit();
 });
