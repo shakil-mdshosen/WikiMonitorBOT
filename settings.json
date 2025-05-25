@@ -31,7 +31,8 @@
       "block",
       "protect",
       "log"
-    ]
+    ],
+    "status": "paused"
   },
   "5660281670": {
     "wiki": "bnwiki",
