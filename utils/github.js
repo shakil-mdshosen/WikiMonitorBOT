@@ -90,7 +90,7 @@ export const updateGithub = async (settings) => {
       `/repos/${config.githubRepo}/contents/settings.json`,
       {
         json: {
-          message: '📦 Auto-update bot settings',
+          message: 'Update bot settings',
           content: Buffer.from(content).toString('base64'),
           sha,
           branch: 'main'
