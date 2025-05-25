@@ -88,12 +88,29 @@ function connectToEventStream() {
 
   eventSource.onerror = (err) => {
     console.error('❌ EventStream error:', err);
-    notifyError(err, 'EventStream connection error');
     
-    // Optimized rate limit handling with shorter delays
-    const retryDelay = err.status === 429 ? 
-      Math.min(30000, 1000 + (Math.random() * 3000)) : // 1-4s for rate limits
-      2000; // 2s for other errors
+    // Extract the Retry-After header from the error if available
+    let retryAfter = 5; // default 5 seconds for 429 errors
+    if (err.event?.target?.responseHeaders?.['retry-after']) {
+      retryAfter = parseInt(err.event.target.responseHeaders['retry-after']);
+    } else if (err.status === 429) {
+      // If we get a 429 without Retry-After, use default
+      retryAfter = 5;
+    } else {
+      // For non-429 errors, use shorter 2s delay
+      retryAfter = 2;
+    }
+
+    // Calculate delay with some randomness to avoid thundering herd
+    const retryDelay = Math.min(
+      60000, // Maximum 60 second delay
+      Math.max(
+        1000, // Minimum 1 second delay
+        retryAfter * 1000 + Math.random() * 2000 // Add up to 2s jitter
+      )
+    );
+
+    notifyError(err, `EventStream connection error. Retrying in ${Math.ceil(retryDelay/1000)}s`);
     
     setTimeout(() => {
       connectToEventStream();
