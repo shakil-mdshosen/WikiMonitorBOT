@@ -33,21 +33,6 @@ console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || '
 const processedEvents = new Set();
 const MAX_PROCESSED_EVENTS = 1000;
 
-// Rate limiting and queueing
-const RATE_LIMIT_DELAY = 2000; // 2 seconds between messages
-const messageQueue = new Map();
-
-// Connection monitoring
-let reconnectDelay = 1000;
-const MAX_RECONNECT_DELAY = 60000;
-let lastEventTime = Date.now();
-const stats = {
-  connections: 0,
-  errors: 0,
-  events: 0,
-  skippedBots: 0
-};
-
 // Initialize Wikimedia EventStream
 let eventSource;
 
@@ -76,7 +61,10 @@ function getWikiBaseUrl(wiki) {
 }
 
 async function isAdmin(bot, chatId, userId) {
+  // Always allow in private chats
   if (chatId > 0) return true;
+  
+  // Check if user is in adminIds from config
   if (config.adminIds.includes(userId.toString())) return true;
   
   try {
@@ -90,35 +78,22 @@ async function isAdmin(bot, chatId, userId) {
 
 function connectToEventStream() {
   eventSource = new EventSource(config.eventStreamUrl);
-  stats.connections++;
 
   eventSource.onopen = () => {
     console.log('✅ Connected to Wikimedia EventStream');
-    reconnectDelay = 1000;
   };
 
   eventSource.onerror = (err) => {
-    stats.errors++;
-    console.error(`❌ EventStream error (Status: ${err.status}):`, err.type);
-    eventSource.close();
-    
-    const delay = Math.min(reconnectDelay + Math.random() * 1000, MAX_RECONNECT_DELAY);
-    console.log(`⏳ Reconnecting in ${Math.round(delay/1000)} seconds...`);
-    
-    setTimeout(() => {
-      reconnectDelay *= 2;
-      connectToEventStream();
-    }, delay);
+    console.error('❌ EventStream error:', err);
+    setTimeout(connectToEventStream, 5000);
   };
 
   eventSource.onmessage = (event) => {
     try {
-      lastEventTime = Date.now();
       const data = JSON.parse(event.data);
-      stats.events++;
 
+      // Skip events from bot accounts
       if (isBotAccount(data)) {
-        stats.skippedBots++;
         return;
       }
 
@@ -149,22 +124,6 @@ function connectToEventStream() {
 }
 
 function sendNotification(chatId, data) {
-  if (!messageQueue.has(chatId)) {
-    messageQueue.set(chatId, []);
-  }
-  
-  messageQueue.get(chatId).push(data);
-  
-  if (messageQueue.get(chatId).length === 1) {
-    processQueue(chatId);
-  }
-}
-
-async function processQueue(chatId) {
-  const queue = messageQueue.get(chatId);
-  if (!queue || queue.length === 0) return;
-  
-  const data = queue[0];
   const title = data.title || data.log_title || 'Unknown';
   const user = data.user || data.performer?.user_text || 'Anonymous';
   const wiki = data.wiki || 'enwiki';
@@ -259,28 +218,13 @@ async function processQueue(chatId) {
     messageParts.push(`📊 Initial size: ${data.length.new} bytes`);
   }
 
-  try {
-    await bot.sendMessage(chatId, messageParts.join('\n'), {
-      parse_mode: 'Markdown',
-      disable_web_page_preview: true
-    });
-    
-    queue.shift();
-    setTimeout(() => processQueue(chatId), RATE_LIMIT_DELAY);
-  } catch (err) {
+  bot.sendMessage(chatId, messageParts.join('\n'), {
+    parse_mode: 'Markdown',
+    disable_web_page_preview: true
+  }).catch(err => {
     console.error(`Failed to send to group ${chatId}:`, err.message);
-    setTimeout(() => processQueue(chatId), 5000);
-  }
+  });
 }
-
-// Connection health monitoring
-setInterval(() => {
-  if (Date.now() - lastEventTime > 120000) {
-    console.log('🕒 No events received in 2 minutes, reconnecting...');
-    eventSource?.close();
-    connectToEventStream();
-  }
-}, 60000);
 
 const commands = [
   { command: 'start', description: 'Start the bot' },
@@ -290,8 +234,7 @@ const commands = [
   { command: 'showconfig', description: 'Show current configuration' },
   { command: 'status', description: 'Check bot status in this group' },
   { command: 'off', description: 'Pause notifications in this group' },
-  { command: 'on', description: 'Resume notifications in this group' },
-  { command: 'stats', description: 'Show bot statistics' }
+  { command: 'on', description: 'Resume notifications in this group' }
 ];
 
 bot.setMyCommands(commands);
@@ -310,22 +253,192 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
 });
 
-bot.onText(/\/stats/, (msg) => {
+bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
   bot.sendMessage(chatId, 
-    `📊 *Bot Statistics*\n` +
-    `Connections: ${stats.connections}\n` +
-    `Events Processed: ${stats.events}\n` +
-    `Skipped Bot Events: ${stats.skippedBots}\n` +
-    `Errors: ${stats.errors}\n` +
-    `Queue Sizes: ${Array.from(messageQueue.entries())
-      .map(([id, q]) => `${id}: ${q.length}`)
-      .join(', ') || 'None'}`,
+    `ℹ️ *Help Menu*\n\n` +
+    `*Available commands:*\n` +
+    `${commands.map(cmd => `/${cmd.command} - ${cmd.description}`).join('\n')}\n\n` +
+    `*Supported event types:*\n` +
+    `- edit: Page edits\n` +
+    `- new: New page creations\n` +
+    `- delete: Page deletions\n` +
+    `- move: Page moves\n` +
+    `- block: User blocks\n` +
+    `- protect: Page protections\n` +
+    `- log: All log events`,
     { parse_mode: 'Markdown' }
   );
 });
 
-// ... [keep all other command handlers unchanged] ...
+bot.onText(/\/setwiki (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id.toString();
+  const fromId = msg.from.id.toString();
+  
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
+      { parse_mode: 'Markdown' });
+  }
+
+  const wiki = match[1].trim();
+  
+  if (!wiki.match(/^[a-z]{2,}(wiki|wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage)$/)) {
+    return bot.sendMessage(chatId, 
+      '⚠️ *Invalid wiki format.* Please use format like "enwiki", "bnwikibooks" etc.',
+      { parse_mode: 'Markdown' });
+  }
+
+  if (!settings[chatId]) {
+    settings[chatId] = { wiki: '', events: [], status: 'active' };
+  }
+  
+  settings[chatId].wiki = wiki;
+  groupStatus[chatId] = 'active';
+  
+  if (saveSettings(settings)) {
+    updateGithub(settings).then(success => {
+      const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
+      bot.sendMessage(chatId, 
+        `✅ *Success!* Wiki set to \`${wiki}\` ${statusMsg}. ` +
+        `Now set events with /setevents`,
+        { parse_mode: 'Markdown' });
+    });
+  } else {
+    bot.sendMessage(chatId, 
+      '❌ *Error:* Failed to save settings. Please try again.',
+      { parse_mode: 'Markdown' });
+  }
+});
+
+bot.onText(/\/setevents (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id.toString();
+  const fromId = msg.from.id.toString();
+  
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
+      { parse_mode: 'Markdown' });
+  }
+
+  const events = match[1].trim().split(/\s+/);
+  const validEvents = ['edit', 'new', 'delete', 'move', 'block', 'protect', 'log'];
+  const invalidEvents = events.filter(e => !validEvents.includes(e));
+  
+  if (invalidEvents.length > 0) {
+    return bot.sendMessage(chatId,
+      `⚠️ *Invalid event types:* ${invalidEvents.join(', ')}\n\n` +
+      `Valid events: ${validEvents.join(', ')}`,
+      { parse_mode: 'Markdown' });
+  }
+  
+  if (!settings[chatId]?.wiki) {
+    return bot.sendMessage(chatId, 
+      '⚠️ *Error:* Please set a wiki first with /setwiki',
+      { parse_mode: 'Markdown' });
+  }
+  
+  settings[chatId].events = events;
+  
+  if (saveSettings(settings)) {
+    updateGithub(settings).then(success => {
+      const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
+      bot.sendMessage(chatId,
+        `✅ *Success!* Events set to: \`${events.join(', ')}\` ${statusMsg}`,
+        { parse_mode: 'Markdown' });
+    });
+  } else {
+    bot.sendMessage(chatId,
+      '❌ *Error:* Failed to save settings. Please try again.',
+      { parse_mode: 'Markdown' });
+  }
+});
+
+bot.onText(/\/showconfig/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  const groupConfig = settings[chatId] || {};
+  const status = groupStatus[chatId] || 'active';
+  
+  const message = `
+🔧 *Current Configuration:*
+Wiki: \`${groupConfig.wiki || 'Not set'}\`
+Events: \`${groupConfig.events?.join(', ') || 'None'}\`
+Status: \`${status === 'active' ? 'Active ✅' : 'Paused ⏸'}\`
+  `.trim();
+  
+  bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+});
+
+bot.onText(/\/status/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  const currentStatus = groupStatus[chatId] || 'active';
+  
+  bot.sendMessage(chatId, 
+    `🔘 Current status: ${currentStatus === 'active' ? '✅ Active' : '⏸ Paused'}\n` +
+    `Use /off to pause or /on to resume notifications.`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+bot.onText(/\/off/, async (msg) => {
+  const chatId = msg.chat.id.toString();
+  const fromId = msg.from.id.toString();
+  
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can pause notifications', 
+      { parse_mode: 'Markdown' });
+  }
+
+  groupStatus[chatId] = 'paused';
+  
+  if (!settings[chatId]) {
+    settings[chatId] = { status: 'paused' };
+  } else {
+    settings[chatId].status = 'paused';
+  }
+  
+  if (saveSettings(settings)) {
+    updateGithub(settings).then(success => {
+      const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
+      bot.sendMessage(chatId, 
+        `⏸ *Notifications paused* ${statusMsg}. Use /on to resume.`,
+        { parse_mode: 'Markdown' });
+    });
+  } else {
+    bot.sendMessage(chatId, 
+      '❌ *Error:* Failed to save settings. Please try again.',
+      { parse_mode: 'Markdown' });
+  }
+});
+
+bot.onText(/\/on/, async (msg) => {
+  const chatId = msg.chat.id.toString();
+  const fromId = msg.from.id.toString();
+  
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can resume notifications', 
+      { parse_mode: 'Markdown' });
+  }
+
+  groupStatus[chatId] = 'active';
+  
+  if (!settings[chatId]) {
+    settings[chatId] = { status: 'active' };
+  } else {
+    settings[chatId].status = 'active';
+  }
+  
+  if (saveSettings(settings)) {
+    updateGithub(settings).then(success => {
+      const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
+      bot.sendMessage(chatId, 
+        `✅ *Notifications resumed* ${statusMsg}. Use /off to pause.`,
+        { parse_mode: 'Markdown' });
+    });
+  } else {
+    bot.sendMessage(chatId, 
+      '❌ *Error:* Failed to save settings. Please try again.',
+      { parse_mode: 'Markdown' });
+  }
+});
 
 // Start the bot
 connectToEventStream();
