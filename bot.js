@@ -9,7 +9,8 @@ import { isBotAccount } from './utils/botCheck.js';
 const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN,
   eventStreamUrl: 'https://stream.wikimedia.org/v2/stream/recentchange',
-  adminIds: process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : []
+  adminIds: process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : [],
+  notifyAdminThreshold: process.env.NOTIFY_ADMIN_THRESHOLD || 5
 };
 
 // Initialize bot with polling
@@ -32,6 +33,10 @@ console.log('Loaded settings for groups:', Object.keys(settings).join(', ') || '
 // Event deduplication tracking
 const processedEvents = new Set();
 const MAX_PROCESSED_EVENTS = 1000;
+
+// Error tracking for admin notifications
+const errorCounts = {};
+const MAX_ERRORS_BEFORE_NOTIFY = config.notifyAdminThreshold;
 
 // Initialize Wikimedia EventStream
 let eventSource;
@@ -76,6 +81,28 @@ async function isAdmin(bot, chatId, userId) {
   }
 }
 
+function notifyAdmins(errorMessage) {
+  if (!config.adminIds.length) return;
+
+  // Increment error count for this message type
+  errorCounts[errorMessage] = (errorCounts[errorMessage] || 0) + 1;
+
+  // Only notify if we've reached the threshold
+  if (errorCounts[errorMessage] >= MAX_ERRORS_BEFORE_NOTIFY) {
+    const message = `⚠️ *Admin Alert* ⚠️\n` +
+      `Error occurred ${errorCounts[errorMessage]} times:\n` +
+      `\`\`\`\n${errorMessage}\n\`\`\``;
+
+    config.adminIds.forEach(adminId => {
+      bot.sendMessage(adminId, message, { parse_mode: 'Markdown' })
+        .catch(err => console.error('Failed to send admin notification:', err));
+    });
+
+    // Reset counter after notification
+    errorCounts[errorMessage] = 0;
+  }
+}
+
 function connectToEventStream() {
   eventSource = new EventSource(config.eventStreamUrl);
 
@@ -84,7 +111,9 @@ function connectToEventStream() {
   };
 
   eventSource.onerror = (err) => {
-    console.error('❌ EventStream error:', err);
+    const errorMsg = `EventStream error: ${err.message || err}`;
+    console.error('❌ ' + errorMsg);
+    notifyAdmins(errorMsg);
     setTimeout(connectToEventStream, 5000);
   };
 
@@ -118,7 +147,9 @@ function connectToEventStream() {
         }
       });
     } catch (err) {
-      console.error('Error processing event:', err);
+      const errorMsg = `Error processing event: ${err.message || err}`;
+      console.error(errorMsg);
+      notifyAdmins(errorMsg);
     }
   };
 }
@@ -222,7 +253,9 @@ function sendNotification(chatId, data) {
     parse_mode: 'Markdown',
     disable_web_page_preview: true
   }).catch(err => {
-    console.error(`Failed to send to group ${chatId}:`, err.message);
+    const errorMsg = `Failed to send to group ${chatId}: ${err.message}`;
+    console.error(errorMsg);
+    notifyAdmins(errorMsg);
   });
 }
 
