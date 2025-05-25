@@ -62,5 +62,10 @@
       "delete",
       "log"
     ]
+  },
+  "6174802280": {
+    "wiki": "metawiki",
+    "events": [],
+    "status": "active"
   }
 }
