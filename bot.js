@@ -163,6 +163,10 @@ function connectToEventStream() {
 }
 
 function sendNotification(chatId, data) {
+  const sanitizeText = (text) => {
+    return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
+  };
+
   const title = data.title || data.log_title || 'Unknown';
   const user = data.user || data.performer?.user_text || 'Anonymous';
   const wiki = data.wiki || 'enwiki';
@@ -170,7 +174,7 @@ function sendNotification(chatId, data) {
   const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
   const pageUrl = `${baseUrl}/wiki/${encodedTitle}`;
   const userLink = user !== 'Anonymous' 
-    ? `[${user}](${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)})`
+    ? `[${sanitizeText(user)}](${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)})`
     : 'Anonymous';
 
   let messageParts = [];
@@ -178,72 +182,72 @@ function sendNotification(chatId, data) {
 
   switch (data.type) {
     case 'edit':
-      messageParts.push(`✏️ *Edit* on ${wiki}`);
+      messageParts.push(`✏️ *Edit* on ${sanitizeText(wiki)}`);
       if (data.revid && data.old_revid) {
         const diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
         messageParts.push(`🔀 [View changes](${diffUrl})`);
       }
       if (data.comment) {
-        messageParts.push(`📝 Edit summary: ${data.comment}`);
+        messageParts.push(`📝 Edit summary: ${sanitizeText(data.comment)}`);
       }
       break;
     case 'new':
-      messageParts.push(`✨ *New page* on ${wiki}`);
+      messageParts.push(`✨ *New page* on ${sanitizeText(wiki)}`);
       if (data.comment) {
-        messageParts.push(`📝 Creation reason: ${data.comment}`);
+        messageParts.push(`📝 Creation reason: ${sanitizeText(data.comment)}`);
       }
       break;
     case 'log':
       eventType = `log ${data.log_type}`;
       switch (data.log_type) {
         case 'delete':
-          messageParts.push(`🗑️ *Page deletion* on ${wiki}`);
+          messageParts.push(`🗑️ *Page deletion* on ${sanitizeText(wiki)}`);
           if (data.log_params?.count) {
-            messageParts.push(`🔢 Pages affected: ${data.log_params.count}`);
+            messageParts.push(`🔢 Pages affected: ${sanitizeText(data.log_params.count.toString())}`);
           }
           break;
         case 'block':
-          messageParts.push(`⛔ *User block* on ${wiki}`);
+          messageParts.push(`⛔ *User block* on ${sanitizeText(wiki)}`);
           if (data.log_params?.duration) {
-            messageParts.push(`⏱️ Duration: ${data.log_params.duration}`);
+            messageParts.push(`⏱️ Duration: ${sanitizeText(data.log_params.duration)}`);
           }
           break;
         case 'move':
-          messageParts.push(`↔️ *Page move* on ${wiki}`);
+          messageParts.push(`↔️ *Page move* on ${sanitizeText(wiki)}`);
           if (data.log_params?.target_title) {
             const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title.replace(/ /g, '_'))}`;
-            messageParts.push(`➡️ Moved to: [${data.log_params.target_title}](${targetUrl})`);
+            messageParts.push(`➡️ Moved to: [${sanitizeText(data.log_params.target_title)}](${targetUrl})`);
           }
           break;
         case 'protect':
-          messageParts.push(`🛡️ *Protection change* on ${wiki}`);
+          messageParts.push(`🛡️ *Protection change* on ${sanitizeText(wiki)}`);
           if (data.log_params?.description) {
-            messageParts.push(`📝 Reason: ${data.log_params.description}`);
+            messageParts.push(`📝 Reason: ${sanitizeText(data.log_params.description)}`);
           }
           break;
         default:
-          messageParts.push(`📋 *Log event (${data.log_type})* on ${wiki}`);
+          messageParts.push(`📋 *Log event (${sanitizeText(data.log_type)})* on ${sanitizeText(wiki)}`);
       }
       if (data.log_comment) {
-        messageParts.push(`💬 Log comment: ${data.log_comment}`);
+        messageParts.push(`💬 Log comment: ${sanitizeText(data.log_comment)}`);
       }
       break;
     case 'move':
-      messageParts.push(`↔️ *Page move* on ${wiki}`);
+      messageParts.push(`↔️ *Page move* on ${sanitizeText(wiki)}`);
       if (data.target_title) {
         const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title.replace(/ /g, '_'))}`;
-        messageParts.push(`➡️ Moved to: [${data.target_title}](${targetUrl})`);
+        messageParts.push(`➡️ Moved to: [${sanitizeText(data.target_title)}](${targetUrl})`);
       }
       if (data.comment) {
-        messageParts.push(`📝 Reason: ${data.comment}`);
+        messageParts.push(`📝 Reason: ${sanitizeText(data.comment)}`);
       }
       break;
     default:
-      messageParts.push(`🔔 *${data.type}* on ${wiki}`);
+      messageParts.push(`🔔 *${sanitizeText(data.type)}* on ${sanitizeText(wiki)}`);
   }
 
   messageParts.push(
-    `📄 Page: [${title}](${pageUrl})`,
+    `📄 Page: [${sanitizeText(title)}](${pageUrl})`,
     `👤 User: ${userLink}`
   );
 
@@ -258,7 +262,7 @@ function sendNotification(chatId, data) {
   }
 
   bot.sendMessage(chatId, messageParts.join('\n'), {
-    parse_mode: 'Markdown',
+    parse_mode: 'MarkdownV2',
     disable_web_page_preview: true
   }).catch(err => {
     console.error(`Failed to send to group ${chatId}:`, err.message);
