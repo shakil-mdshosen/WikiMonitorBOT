@@ -163,91 +163,100 @@ function connectToEventStream() {
 }
 
 function sendNotification(chatId, data) {
-  const sanitizeText = (text) => {
-    return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
+  // Enhanced MarkdownV2 escaping (includes all reserved characters)
+  const escapeMarkdownV2 = (text) => {
+    if (!text) return text;
+    return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
   };
 
-  const title = data.title || data.log_title || 'Unknown';
+  // Clean URLs for Markdown (handle parentheses and other special chars)
+  const cleanUrl = (url) => {
+    return url.replace(/\)/g, '%29').replace(/\(/g, '%28');
+  };
+
+  const title = escapeMarkdownV2(data.title || data.log_title || 'Unknown');
   const user = data.user || data.performer?.user_text || 'Anonymous';
   const wiki = data.wiki || 'enwiki';
   const baseUrl = getWikiBaseUrl(wiki);
-  const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
-  const pageUrl = `${baseUrl}/wiki/${encodedTitle}`;
+  const encodedTitle = encodeURIComponent((data.title || '').replace(/ /g, '_'));
+  const pageUrl = cleanUrl(`${baseUrl}/wiki/${encodedTitle}`);
+  
+  // Create properly escaped user link
   const userLink = user !== 'Anonymous' 
-    ? `[${sanitizeText(user)}](${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)})`
+    ? `[${escapeMarkdownV2(user)}](${cleanUrl(`${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)}`)})`
     : 'Anonymous';
 
   let messageParts = [];
-  let eventType = data.type;
 
   switch (data.type) {
     case 'edit':
-      messageParts.push(`✏️ *Edit* on ${sanitizeText(wiki)}`);
+      messageParts.push(`✏️ *Edit* on ${wiki}`);
       if (data.revid && data.old_revid) {
-        const diffUrl = `${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`;
+        const diffUrl = cleanUrl(`${baseUrl}/w/index.php?diff=${data.revid}&oldid=${data.old_revid}`);
         messageParts.push(`🔀 [View changes](${diffUrl})`);
       }
       if (data.comment) {
-        messageParts.push(`📝 Edit summary: ${sanitizeText(data.comment)}`);
+        messageParts.push(`📝 Edit summary: ${escapeMarkdownV2(data.comment)}`);
       }
       break;
     case 'new':
-      messageParts.push(`✨ *New page* on ${sanitizeText(wiki)}`);
+      messageParts.push(`✨ *New page* on ${wiki}`);
       if (data.comment) {
-        messageParts.push(`📝 Creation reason: ${sanitizeText(data.comment)}`);
+        messageParts.push(`📝 Creation reason: ${escapeMarkdownV2(data.comment)}`);
       }
       break;
     case 'log':
-      eventType = `log ${data.log_type}`;
       switch (data.log_type) {
         case 'delete':
-          messageParts.push(`🗑️ *Page deletion* on ${sanitizeText(wiki)}`);
+          messageParts.push(`🗑️ *Page deletion* on ${wiki}`);
           if (data.log_params?.count) {
-            messageParts.push(`🔢 Pages affected: ${sanitizeText(data.log_params.count.toString())}`);
+            messageParts.push(`🔢 Pages affected: ${escapeMarkdownV2(data.log_params.count)}`);
           }
           break;
         case 'block':
-          messageParts.push(`⛔ *User block* on ${sanitizeText(wiki)}`);
+          messageParts.push(`⛔ *User block* on ${wiki}`);
           if (data.log_params?.duration) {
-            messageParts.push(`⏱️ Duration: ${sanitizeText(data.log_params.duration)}`);
+            messageParts.push(`⏱️ Duration: ${escapeMarkdownV2(data.log_params.duration)}`);
           }
           break;
         case 'move':
-          messageParts.push(`↔️ *Page move* on ${sanitizeText(wiki)}`);
+          messageParts.push(`↔️ *Page move* on ${wiki}`);
           if (data.log_params?.target_title) {
-            const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title.replace(/ /g, '_'))}`;
-            messageParts.push(`➡️ Moved to: [${sanitizeText(data.log_params.target_title)}](${targetUrl})`);
+            const targetTitle = escapeMarkdownV2(data.log_params.target_title);
+            const targetUrl = cleanUrl(`${baseUrl}/wiki/${encodeURIComponent(data.log_params.target_title.replace(/ /g, '_'))}`);
+            messageParts.push(`➡️ Moved to: [${targetTitle}](${targetUrl})`);
           }
           break;
         case 'protect':
-          messageParts.push(`🛡️ *Protection change* on ${sanitizeText(wiki)}`);
+          messageParts.push(`🛡️ *Protection change* on ${wiki}`);
           if (data.log_params?.description) {
-            messageParts.push(`📝 Reason: ${sanitizeText(data.log_params.description)}`);
+            messageParts.push(`📝 Reason: ${escapeMarkdownV2(data.log_params.description)}`);
           }
           break;
         default:
-          messageParts.push(`📋 *Log event (${sanitizeText(data.log_type)})* on ${sanitizeText(wiki)}`);
+          messageParts.push(`📋 *Log event \\(${data.log_type}\\)* on ${wiki}`);
       }
       if (data.log_comment) {
-        messageParts.push(`💬 Log comment: ${sanitizeText(data.log_comment)}`);
+        messageParts.push(`💬 Log comment: ${escapeMarkdownV2(data.log_comment)}`);
       }
       break;
     case 'move':
-      messageParts.push(`↔️ *Page move* on ${sanitizeText(wiki)}`);
+      messageParts.push(`↔️ *Page move* on ${wiki}`);
       if (data.target_title) {
-        const targetUrl = `${baseUrl}/wiki/${encodeURIComponent(data.target_title.replace(/ /g, '_'))}`;
-        messageParts.push(`➡️ Moved to: [${sanitizeText(data.target_title)}](${targetUrl})`);
+        const targetTitle = escapeMarkdownV2(data.target_title);
+        const targetUrl = cleanUrl(`${baseUrl}/wiki/${encodeURIComponent(data.target_title.replace(/ /g, '_'))}`);
+        messageParts.push(`➡️ Moved to: [${targetTitle}](${targetUrl})`);
       }
       if (data.comment) {
-        messageParts.push(`📝 Reason: ${sanitizeText(data.comment)}`);
+        messageParts.push(`📝 Reason: ${escapeMarkdownV2(data.comment)}`);
       }
       break;
     default:
-      messageParts.push(`🔔 *${sanitizeText(data.type)}* on ${sanitizeText(wiki)}`);
+      messageParts.push(`🔔 *${data.type}* on ${wiki}`);
   }
 
   messageParts.push(
-    `📄 Page: [${sanitizeText(title)}](${pageUrl})`,
+    `📄 Page: [${title}](${pageUrl})`,
     `👤 User: ${userLink}`
   );
 
@@ -261,13 +270,24 @@ function sendNotification(chatId, data) {
     messageParts.push(`📊 Initial size: ${data.length.new} bytes`);
   }
 
-  bot.sendMessage(chatId, messageParts.join('\n'), {
-    parse_mode: 'MarkdownV2',
-    disable_web_page_preview: true
-  }).catch(err => {
-    console.error(`Failed to send to group ${chatId}:`, err.message);
-    notifyError(err, `Failed to send message to group ${chatId}`);
-  });
+  const sendMessageWithRetry = async (attempt = 1) => {
+    try {
+      await bot.sendMessage(chatId, messageParts.join('\n'), {
+        parse_mode: 'MarkdownV2',
+        disable_web_page_preview: true
+      });
+    } catch (err) {
+      if (attempt <= 3) {
+        console.warn(`Attempt ${attempt} failed for ${chatId}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        return sendMessageWithRetry(attempt + 1);
+      }
+      console.error(`Final send failed for ${chatId}:`, err.message);
+      notifyError(err, `Failed to send message to group ${chatId}`);
+    }
+  };
+
+  sendMessageWithRetry();
 }
 
 const commands = [
