@@ -66,9 +66,7 @@
   "6174802280": {
     "wiki": "metawiki",
     "events": [
-      "edit",
-      "new",
-      "delete"
+      "new"
     ],
     "status": "paused"
   }
