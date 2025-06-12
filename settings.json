@@ -15,7 +15,9 @@
   "-1002599867949": {
     "wiki": "wikidatawiki",
     "events": [
-      "new"
+      "new",
+      "edit",
+      "log"
     ],
     "status": "active"
   },
