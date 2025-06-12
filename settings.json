@@ -13,11 +13,9 @@
     "status": "paused"
   },
   "-1002599867949": {
-    "wiki": "bnwiki",
+    "wiki": "wikidatawiki",
     "events": [
-      "new",
-      "edit",
-      "log"
+      "new"
     ],
     "status": "active"
   },
