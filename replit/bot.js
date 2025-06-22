@@ -542,10 +542,11 @@ bot.onText(/\/off/, async (msg) => {
 
 // Admin command to manually sync all files
 bot.onText(/\/syncfiles/, async (msg) => {
+  const chatId = msg.chat.id;
   const fromId = msg.from.id.toString();
   
-  if (!config.adminIds.includes(fromId)) {
-    return bot.sendMessage(msg.chat.id, '🚫 *Error:* Only bot admins can sync files', 
+  if (!(await isAdmin(bot, chatId, fromId))) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only bot admins can sync files', 
       { parse_mode: 'Markdown' });
   }
 
