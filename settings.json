@@ -1,7 +1,73 @@
 {
+  "1582340088": {
+    "wiki": "metawiki",
+    "events": [
+      "edit",
+      "new",
+      "delete",
+      "log",
+      "move",
+      "block",
+      "protect"
+    ],
+    "status": "paused"
+  },
   "-1002599867949": {
     "wiki": "bnwiki",
-    "events": [],
+    "events": [
+      "new"
+    ],
     "status": "active"
+  },
+  "-1002553666220": {
+    "wiki": "bnwikibooks",
+    "events": [
+      "edit",
+      "new",
+      "delete",
+      "move",
+      "block",
+      "protect",
+      "log"
+    ],
+    "status": "active"
+  },
+  "5660281670": {
+    "wiki": "bnwiki",
+    "events": [
+      "new",
+      "edit"
+    ],
+    "status": "paused"
+  },
+  "7156328447": {
+    "wiki": "bnwiki",
+    "events": [
+      "new"
+    ],
+    "status": "paused"
+  },
+  "6935254252": {
+    "wiki": "bnwiki",
+    "events": [
+      "new"
+    ],
+    "status": "active"
+  },
+  "-1002566326918": {
+    "wiki": "bnwiki",
+    "events": [
+      "edit",
+      "new",
+      "delete",
+      "log"
+    ]
+  },
+  "6174802280": {
+    "wiki": "enwiki",
+    "events": [
+      "new"
+    ],
+    "status": "paused"
   }
 }
