@@ -1,4 +1,3 @@
-
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, dirname, relative } from 'path';
 import { fileURLToPath } from 'url';
@@ -34,7 +33,7 @@ const excludePatterns = [
  */
 const githubRequest = async (method, endpoint, options = {}) => {
   let lastError;
-  
+
   for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
     try {
       const response = await got(`https://api.github.com${endpoint}`, {
@@ -51,7 +50,7 @@ const githubRequest = async (method, endpoint, options = {}) => {
       return response.body ? JSON.parse(response.body) : null;
     } catch (error) {
       lastError = error;
-      
+
       if (attempt < config.maxRetries) {
         const delay = config.retryDelay * attempt;
         console.warn(`⚠️ GitHub sync attempt ${attempt} failed. Retrying in ${delay}ms...`);
@@ -64,32 +63,33 @@ const githubRequest = async (method, endpoint, options = {}) => {
 };
 
 /**
- * Get all files recursively from directory
+ * Get only main files from the root directory
  */
-const getAllFiles = (dirPath, arrayOfFiles = []) => {
-  const files = readdirSync(dirPath);
+const getMainFiles = () => {
+  const mainFiles = [
+    'bot.js',
+    'botCheck.js',
+    'config.js',
+    'github.js',
+    'index.js',
+    'notifier.js',
+    'replit-sync.js',
+    'settings.js',
+    'settings.json',
+    'package.json',
+    'README.md',
+    'LICENSE',
+    '.replit'
+  ];
 
-  files.forEach(file => {
-    const fullPath = join(dirPath, file);
-    const relativePath = relative(__dirname, fullPath);
-    
-    // Skip excluded files/folders
-    if (excludePatterns.some(pattern => relativePath.includes(pattern))) {
-      return;
-    }
-
-    if (statSync(fullPath).isDirectory()) {
-      arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
-    } else {
-      arrayOfFiles.push({
-        localPath: fullPath,
-        relativePath: relativePath,
-        githubPath: `${config.replitFolder}/${relativePath}`
-      });
+  const existingFiles = [];
+  mainFiles.forEach(file => {
+    if (existsSync(file)) {
+      existingFiles.push(file);
     }
   });
 
-  return arrayOfFiles;
+  return existingFiles;
 };
 
 /**
@@ -111,13 +111,12 @@ const getFileSha = async (filePath) => {
 /**
  * Upload or update a single file to GitHub
  */
-const syncFileToGithub = async (fileInfo) => {
+const syncFileToGithub = async (filePath, content) => {
   try {
-    const content = readFileSync(fileInfo.localPath, 'utf8');
-    const sha = await getFileSha(fileInfo.githubPath);
+    const sha = await getFileSha(`${config.replitFolder}/${filePath}`);
 
     const payload = {
-      message: `Sync: Update ${fileInfo.relativePath}`,
+      message: `Sync: Update ${filePath}`,
       content: Buffer.from(content).toString('base64'),
       branch: 'main'
     };
@@ -128,19 +127,19 @@ const syncFileToGithub = async (fileInfo) => {
 
     await githubRequest(
       'PUT',
-      `/repos/${config.githubRepo}/contents/${fileInfo.githubPath}`,
+      `/repos/${config.githubRepo}/contents/${config.replitFolder}/${filePath}`,
       { json: payload }
     );
 
     return true;
   } catch (error) {
-    console.error(`❌ Failed to sync ${fileInfo.relativePath}:`, error.message);
+    console.error(`❌ Failed to sync ${filePath}:`, error.message);
     return false;
   }
 };
 
 /**
- * Sync all application files to GitHub replit folder
+ * Sync main Replit files to GitHub
  */
 export const syncAllFilesToGithub = async () => {
   // Skip if GitHub integration not configured
@@ -150,43 +149,36 @@ export const syncAllFilesToGithub = async () => {
   }
 
   try {
-    console.log('🔄 Starting full Replit files sync to GitHub...');
-    
-    const allFiles = getAllFiles(__dirname);
+    console.log('🔄 Starting main Replit files sync to GitHub...');
+
+    const files = getMainFiles();
+    console.log(`📁 Found ${files.length} main files to sync`);
+
     let successCount = 0;
     let failureCount = 0;
 
-    console.log(`📁 Found ${allFiles.length} files to sync`);
+    for (const filePath of files) {
+      try {
+        const content = readFileSync(filePath, 'utf8');
+        const relativePath = relative(__dirname, filePath);
 
-    // Sync files in batches to avoid rate limiting
-    const batchSize = 5;
-    for (let i = 0; i < allFiles.length; i += batchSize) {
-      const batch = allFiles.slice(i, i + batchSize);
-      
-      const batchPromises = batch.map(async (fileInfo) => {
-        const success = await syncFileToGithub(fileInfo);
-        if (success) {
-          console.log(`✅ Synced: ${fileInfo.relativePath}`);
-          successCount++;
-        } else {
-          failureCount++;
-        }
-        return success;
-      });
 
-      await Promise.all(batchPromises);
-      
-      // Small delay between batches
-      if (i + batchSize < allFiles.length) {
-        await setTimeout(1000);
+        await syncFileToGithub(relativePath, content);
+        console.log(`✅ Synced: ${relativePath}`);
+        successCount++;
+
+        // Add small delay to avoid hitting rate limits
+        await setTimeout(100);
+      } catch (error) {
+        console.error(`❌ Failed to sync ${filePath}:`, error.message);
+        failureCount++;
       }
     }
 
     console.log(`🎉 Replit sync completed: ${successCount} success, ${failureCount} failed`);
     return failureCount === 0;
-
   } catch (error) {
-    console.error('❌ Replit sync failed:', error.message);
+    console.error('❌ Main files sync failed:', error.message);
     return false;
   }
 };
@@ -217,7 +209,7 @@ export const syncSpecificFiles = async (filePaths) => {
 
     let successCount = 0;
     for (const fileInfo of filesToSync) {
-      const success = await syncFileToGithub(fileInfo);
+      const success = await syncFileToGithub(fileInfo.relativePath, readFileSync(fileInfo.localPath, 'utf8'));
       if (success) {
         console.log(`✅ Updated: ${fileInfo.relativePath}`);
         successCount++;
@@ -244,7 +236,7 @@ export const initReplitSync = async () => {
   try {
     // Check if replit folder exists
     const folderExists = await getFileSha(`${config.replitFolder}/README.md`);
-    
+
     if (!folderExists) {
       // Create README in replit folder
       await githubRequest(
@@ -258,7 +250,7 @@ export const initReplitSync = async () => {
           }
         }
       );
-      
+
       console.log(`📁 Created ${config.replitFolder} folder in GitHub`);
     }
 
