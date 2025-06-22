@@ -1,0 +1,21 @@
+{
+  "name": "wikimonitorbot",
+  "version": "1.0.0",
+  "description": "Wikimedia Event Monitor Telegram Bot",
+  "main": "bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node --no-warnings bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "eventsource": "^2.0.2",
+    "express": "^5.1.0",
+    "got": "^12.6.1",
+    "node-telegram-bot-api": "^0.61.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
