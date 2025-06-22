@@ -570,6 +570,47 @@ bot.onText(/\/syncfiles/, async (msg) => {
   }
 });
 
+// Admin command to test broadcast to all groups
+bot.onText(/\/testbroadcast/, async (msg) => {
+  const chatId = msg.chat.id;
+  const fromId = msg.from.id.toString();
+  
+  // Check if user is admin (using admin IDs from config)
+  if (!config.adminIds.includes(fromId)) {
+    return bot.sendMessage(chatId, '🚫 *Error:* Only bot admins can use this command', 
+      { parse_mode: 'Markdown' });
+  }
+
+  const connectedGroups = Object.keys(settings);
+  if (connectedGroups.length === 0) {
+    return bot.sendMessage(chatId, '⚠️ *No groups are configured*', 
+      { parse_mode: 'Markdown' });
+  }
+
+  bot.sendMessage(chatId, `🔄 *Broadcasting test message to ${connectedGroups.length} groups...*`, 
+    { parse_mode: 'Markdown' });
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const groupChatId of connectedGroups) {
+    try {
+      await bot.sendMessage(groupChatId, 'Admin: Testing');
+      successCount++;
+      await new Promise(resolve => setTimeout(resolve, 100)); // Small delay to avoid rate limits
+    } catch (error) {
+      failCount++;
+      console.error(`Failed to send test message to ${groupChatId}:`, error.message);
+    }
+  }
+
+  bot.sendMessage(chatId, 
+    `✅ *Broadcast completed*\n` +
+    `• Successful: ${successCount}\n` +
+    `• Failed: ${failCount}`, 
+    { parse_mode: 'Markdown' });
+});
+
 bot.onText(/\/on/, async (msg) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
