@@ -86,6 +86,10 @@ async function isAdmin(bot, chatId, userId) {
   // Check if user is in adminIds from config
   if (config.adminIds.includes(userId.toString())) return true;
   
+  // Check if user is the admin chat ID (environment variable)
+  const adminChatId = process.env.ADMIN_CHAT_ID;
+  if (adminChatId && userId.toString() === adminChatId.toString()) return true;
+  
   try {
     const admins = await bot.getChatAdministrators(chatId);
     return admins.some(admin => admin.user.id.toString() === userId.toString());
