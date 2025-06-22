@@ -594,8 +594,8 @@ bot.onText(/\/testbroadcast/, async (msg) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id.toString();
   
-  // Check if user is admin (using admin IDs from config)
-  if (!config.adminIds.includes(fromId)) {
+  // Check if user is admin (using comprehensive admin check)
+  if (!(await isAdmin(bot, chatId, fromId))) {
     return bot.sendMessage(chatId, '🚫 *Error:* Only bot admins can use this command', 
       { parse_mode: 'Markdown' });
   }
