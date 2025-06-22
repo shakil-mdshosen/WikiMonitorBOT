@@ -83,21 +83,40 @@ async function isAdmin(bot, chatId, userId) {
   // Always allow in private chats
   if (chatId > 0) return true;
   
-  // Check if user is in adminIds from config
-  if (config.adminIds.includes(userId.toString())) return true;
+  // Convert userId to string for consistent comparison
+  const userIdStr = userId.toString();
+  
+  // Check if user is in adminIds from config (ensure both are strings)
+  if (config.adminIds.length > 0 && config.adminIds.includes(userIdStr)) {
+    console.log(`✅ User ${userIdStr} found in admin IDs`);
+    return true;
+  }
   
   // Check if user is the admin chat ID (environment variable)
   const adminChatId = process.env.ADMIN_CHAT_ID;
-  if (adminChatId && userId.toString() === adminChatId.toString()) return true;
+  if (adminChatId && userIdStr === adminChatId.toString()) {
+    console.log(`✅ User ${userIdStr} matches ADMIN_CHAT_ID`);
+    return true;
+  }
   
+  // Check if user is admin in the Telegram group
   try {
     const admins = await bot.getChatAdministrators(chatId);
-    return admins.some(admin => admin.user.id.toString() === userId.toString());
+    const isGroupAdmin = admins.some(admin => admin.user.id.toString() === userIdStr);
+    if (isGroupAdmin) {
+      console.log(`✅ User ${userIdStr} is Telegram group admin`);
+      return true;
+    }
   } catch (err) {
-    console.error(`Failed to check admin status for ${userId} in ${chatId}:`, err);
-    notifyError(err, `Failed to check admin status for ${userId} in ${chatId}`);
+    console.error(`Failed to check admin status for ${userIdStr} in ${chatId}:`, err);
+    notifyError(err, `Failed to check admin status for ${userIdStr} in ${chatId}`);
     return false;
   }
+  
+  console.log(`❌ User ${userIdStr} is not recognized as admin`);
+  console.log(`Config admin IDs: [${config.adminIds.join(', ')}]`);
+  console.log(`ADMIN_CHAT_ID: ${adminChatId || 'not set'}`);
+  return false;
 }
 
 function connectToEventStream() {
