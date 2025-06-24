@@ -73,8 +73,25 @@
       "edit",
       "new",
       "delete",
-      "log"
-    ]
+      "move",
+      "block",
+      "protect",
+      "log",
+      "newusers",
+      "rename",
+      "globalblock",
+      "gblblock",
+      "import",
+      "merge",
+      "patrol",
+      "review",
+      "rights",
+      "suppress",
+      "tag",
+      "thanks",
+      "upload"
+    ],
+    "status": "active"
   },
   "6174802280": {
     "wiki": "enwiki",
