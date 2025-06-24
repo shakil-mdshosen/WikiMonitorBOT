@@ -62,43 +62,43 @@ function getWikiBaseUrl(wiki) {
   if (wiki === 'wikidatawiki') {
     return 'https://www.wikidata.org';
   }
-  
+
   const matches = wiki.match(/^([a-z]{2,})(wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage|wikimedia|wiki)$/i);
-  
+
   if (!matches) {
     console.warn(`Unknown wiki format: ${wiki}, defaulting to Wikipedia`);
     return `https://${wiki.replace('wiki', '')}.wikipedia.org`;
   }
-  
+
   const [, lang, project] = matches;
-  
+
   if (project && project !== 'wiki') {
     return `https://${lang}.${project}.org`;
   }
-  
+
   return `https://${lang}.wikipedia.org`;
 }
 
 async function isAdmin(bot, chatId, userId) {
   // Always allow in private chats
   if (chatId > 0) return true;
-  
+
   // Convert userId to string for consistent comparison
   const userIdStr = userId.toString();
-  
+
   // Check if user is in adminIds from config (ensure both are strings)
   if (config.adminIds.length > 0 && config.adminIds.includes(userIdStr)) {
     console.log(`✅ User ${userIdStr} found in admin IDs`);
     return true;
   }
-  
+
   // Check if user is the admin chat ID (environment variable)
   const adminChatId = process.env.ADMIN_CHAT_ID;
   if (adminChatId && userIdStr === adminChatId.toString()) {
     console.log(`✅ User ${userIdStr} matches ADMIN_CHAT_ID`);
     return true;
   }
-  
+
   // Check if user is admin in the Telegram group
   try {
     const admins = await bot.getChatAdministrators(chatId);
@@ -112,7 +112,7 @@ async function isAdmin(bot, chatId, userId) {
     notifyError(err, `Failed to check admin status for ${userIdStr} in ${chatId}`);
     return false;
   }
-  
+
   console.log(`❌ User ${userIdStr} is not recognized as admin`);
   console.log(`Config admin IDs: [${config.adminIds.join(', ')}]`);
   console.log(`ADMIN_CHAT_ID: ${adminChatId || 'not set'}`);
@@ -142,7 +142,7 @@ function connectToEventStream() {
     // Handle different error types with better error detection
     let retryAfter = 2; // Default 2 seconds
     let errorType = 'Unknown';
-    
+
     if (err.status) {
       if (err.status === 429) {
         // Rate limiting
@@ -176,12 +176,12 @@ function connectToEventStream() {
 
     const statusText = err.status || 'Network Error';
     console.error(`❌ EventStream ${errorType} (${statusText}). Retrying in ${retryDelay/1000}s...`);
-    
+
     // Only notify admin for persistent issues, not every reconnection
     if (err.status && err.status !== 200) {
       notifyError(new Error(`EventStream ${errorType}`), `Connection error (${statusText}). Auto-reconnecting in ${retryDelay/1000} seconds`);
     }
-    
+
     setTimeout(() => {
       connectToEventStream();
     }, retryDelay);
@@ -197,9 +197,9 @@ function connectToEventStream() {
       }
 
       const eventId = `${data.meta?.dt || Date.now()}-${data.wiki}-${data.title}-${data.type}-${data.user || data.performer?.user_text || ''}`;
-      
+
       if (processedEvents.has(eventId)) return;
-      
+
       processedEvents.add(eventId);
       if (processedEvents.size > MAX_PROCESSED_EVENTS) {
         const first = processedEvents.values().next().value;
@@ -241,7 +241,7 @@ function sendNotification(chatId, data) {
   const baseUrl = getWikiBaseUrl(wiki);
   const encodedTitle = encodeURIComponent((data.title || '').replace(/ /g, '_'));
   const pageUrl = cleanUrl(`${baseUrl}/wiki/${encodedTitle}`);
-  
+
   // Create properly escaped user link
   const userLink = user !== 'Anonymous' 
     ? `[${escapeMarkdownV2(user)}](${cleanUrl(`${baseUrl}/wiki/Special:Contributions/${encodeURIComponent(user)}`)})`
@@ -378,7 +378,7 @@ bot.onText(/\/start/, (msg) => {
     `1. /setwiki enwiki\n` +
     `2. /setevents edit new delete move\n` +
     `3. Use /off to pause or /on to resume notifications`;
-  
+
   bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
 });
 
@@ -395,7 +395,24 @@ bot.onText(/\/help/, (msg) => {
     `- move: Page moves\n` +
     `- block: User blocks\n` +
     `- protect: Page protections\n` +
-    `- log: All log events`,
+    `- log: All log events\n` +
+    `- newusers: Account creations\n` +
+    `- rename: User renames\n` +
+    `- globalblock: Global blocks\n` +
+    `- gblblock: Global blocks (alternate)\n` +
+    `- import: Page imports\n` +
+    `- merge: History merges\n` +
+    `- patrol: Page patrols\n` +
+    `- review: Page reviews\n` +
+    `- rights: User rights changes\n` +
+    `- suppress: Suppression events\n` +
+    `- tag: Change tagging\n` +
+    `- thanks: Thanks events\n` +
+    `- upload: File uploads\n` +
+    `- all: Monitor all event types\n\n` +
+    `*Examples:*\n` +
+    `\`/setevents edit new newusers\` - Monitor edits, new pages and account creations\n` +
+    `\`/setevents all\` - Monitor all events`,
     { parse_mode: 'Markdown' }
   );
 });
@@ -403,14 +420,14 @@ bot.onText(/\/help/, (msg) => {
 bot.onText(/\/setwiki (.+)/, async (msg, match) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
-  
+
   if (!(await isAdmin(bot, chatId, fromId))) {
     return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
       { parse_mode: 'Markdown' });
   }
 
   const wiki = match[1].trim();
-  
+
   if (!wiki.match(/^[a-z]{2,}(wiki|wikibooks|wiktionary|wikinews|wikiquote|wikisource|wikiversity|wikivoyage)$/)) {
     return bot.sendMessage(chatId, 
       '⚠️ *Invalid wiki format.* Please use format like "enwiki", "bnwikibooks" etc.',
@@ -420,10 +437,10 @@ bot.onText(/\/setwiki (.+)/, async (msg, match) => {
   if (!settings[chatId]) {
     settings[chatId] = { wiki: '', events: [], status: 'active' };
   }
-  
+
   settings[chatId].wiki = wiki;
   groupStatus[chatId] = 'active';
-  
+
   if (saveSettings(settings)) {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
@@ -449,31 +466,39 @@ bot.onText(/\/setwiki (.+)/, async (msg, match) => {
 bot.onText(/\/setevents (.+)/, async (msg, match) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
-  
+
   if (!(await isAdmin(bot, chatId, fromId))) {
     return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can change settings', 
       { parse_mode: 'Markdown' });
   }
 
-  const events = match[1].trim().split(/\s+/);
-  const validEvents = ['edit', 'new', 'delete', 'move', 'block', 'protect', 'log'];
-  const invalidEvents = events.filter(e => !validEvents.includes(e));
+  const input = match[1].trim();
+  const validEvents = ['edit', 'new', 'delete', 'move', 'block', 'protect', 'log', 'newusers', 'rename', 'globalblock', 'gblblock', 'import', 'merge', 'patrol', 'review', 'rights', 'suppress', 'tag', 'thanks', 'upload'];
+
+  let events;
+  if (input.toLowerCase() === 'all') {
+    events = validEvents;
+  } else {
+    events = input.trim().split(/\s+/);
+  }
   
+  const invalidEvents = events.filter(e => !validEvents.includes(e));
+
   if (invalidEvents.length > 0) {
     return bot.sendMessage(chatId,
       `⚠️ *Invalid event types:* ${invalidEvents.join(', ')}\n\n` +
       `Valid events: ${validEvents.join(', ')}`,
       { parse_mode: 'Markdown' });
   }
-  
+
   if (!settings[chatId]?.wiki) {
     return bot.sendMessage(chatId, 
       '⚠️ *Error:* Please set a wiki first with /setwiki',
       { parse_mode: 'Markdown' });
   }
-  
+
   settings[chatId].events = events;
-  
+
   if (saveSettings(settings)) {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
@@ -499,21 +524,21 @@ bot.onText(/\/showconfig/, (msg) => {
   const chatId = msg.chat.id.toString();
   const groupConfig = settings[chatId] || {};
   const status = groupStatus[chatId] || 'active';
-  
+
   const message = `
 🔧 *Current Configuration:*
 Wiki: \`${groupConfig.wiki || 'Not set'}\`
 Events: \`${groupConfig.events?.join(', ') || 'None'}\`
 Status: \`${status === 'active' ? 'Active ✅' : 'Paused ⏸'}\`
   `.trim();
-  
+
   bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 });
 
 bot.onText(/\/status/, (msg) => {
   const chatId = msg.chat.id.toString();
   const currentStatus = groupStatus[chatId] || 'active';
-  
+
   bot.sendMessage(chatId, 
     `🔘 Current status: ${currentStatus === 'active' ? '✅ Active' : '⏸ Paused'}\n` +
     `Use /off to pause or /on to resume notifications.`,
@@ -524,20 +549,20 @@ bot.onText(/\/status/, (msg) => {
 bot.onText(/\/off/, async (msg) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
-  
+
   if (!(await isAdmin(bot, chatId, fromId))) {
     return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can pause notifications', 
       { parse_mode: 'Markdown' });
   }
 
   groupStatus[chatId] = 'paused';
-  
+
   if (!settings[chatId]) {
     settings[chatId] = { status: 'paused' };
   } else {
     settings[chatId].status = 'paused';
   }
-  
+
   if (saveSettings(settings)) {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
@@ -563,7 +588,7 @@ bot.onText(/\/off/, async (msg) => {
 bot.onText(/\/syncfiles/, async (msg) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id.toString();
-  
+
   if (!(await isAdmin(bot, chatId, fromId))) {
     return bot.sendMessage(chatId, '🚫 *Error:* Only bot admins can sync files', 
       { parse_mode: 'Markdown' });
@@ -572,10 +597,10 @@ bot.onText(/\/syncfiles/, async (msg) => {
   try {
     bot.sendMessage(msg.chat.id, '🔄 *Starting file sync...* This may take a moment.', 
       { parse_mode: 'Markdown' });
-    
+
     const { syncAllFilesToGithub } = await import('./replit-sync.js');
     const success = await syncAllFilesToGithub();
-    
+
     if (success) {
       bot.sendMessage(msg.chat.id, '✅ *All files synced successfully!*', 
         { parse_mode: 'Markdown' });
@@ -593,7 +618,7 @@ bot.onText(/\/syncfiles/, async (msg) => {
 bot.onText(/\/testbroadcast/, async (msg) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id.toString();
-  
+
   // Check if user is admin (using comprehensive admin check)
   if (!(await isAdmin(bot, chatId, fromId))) {
     return bot.sendMessage(chatId, '🚫 *Error:* Only bot admins can use this command', 
@@ -633,20 +658,20 @@ bot.onText(/\/testbroadcast/, async (msg) => {
 bot.onText(/\/on/, async (msg) => {
   const chatId = msg.chat.id.toString();
   const fromId = msg.from.id.toString();
-  
+
   if (!(await isAdmin(bot, chatId, fromId))) {
     return bot.sendMessage(chatId, '🚫 *Error:* Only group admins can resume notifications', 
       { parse_mode: 'Markdown' });
   }
 
   groupStatus[chatId] = 'active';
-  
+
   if (!settings[chatId]) {
     settings[chatId] = { status: 'active' };
   } else {
     settings[chatId].status = 'active';
   }
-  
+
   if (saveSettings(settings)) {
     updateGithub(settings).then(success => {
       const statusMsg = success ? 'and synced with GitHub' : 'but GitHub sync failed';
