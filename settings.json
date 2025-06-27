@@ -73,7 +73,14 @@
   "-1002823132539": {
     "wiki": "bnwiktionary",
     "events": [
-      "new"
+      "edit",
+      "new",
+      "log",
+      "delete",
+      "move",
+      "block",
+      "protect",
+      "log"
     ],
     "status": "active"
   }
