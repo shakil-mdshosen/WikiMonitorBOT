@@ -5,25 +5,12 @@
       "edit",
       "new",
       "delete",
+      "log",
       "move",
       "block",
-      "protect",
-      "log",
-      "newusers",
-      "rename",
-      "globalblock",
-      "gblblock",
-      "import",
-      "merge",
-      "patrol",
-      "review",
-      "rights",
-      "suppress",
-      "tag",
-      "thanks",
-      "upload"
+      "protect"
     ],
-    "status": "paused"
+    "status": "active"
   },
   "-1002599867949": {
     "wiki": "bnwiki",
@@ -73,25 +60,8 @@
       "edit",
       "new",
       "delete",
-      "move",
-      "block",
-      "protect",
-      "log",
-      "newusers",
-      "rename",
-      "globalblock",
-      "gblblock",
-      "import",
-      "merge",
-      "patrol",
-      "review",
-      "rights",
-      "suppress",
-      "tag",
-      "thanks",
-      "upload"
-    ],
-    "status": "active"
+      "log"
+    ]
   },
   "6174802280": {
     "wiki": "enwiki",
@@ -99,5 +69,12 @@
       "new"
     ],
     "status": "paused"
+  },
+  "-1002823132539": {
+    "wiki": "enwiki",
+    "events": [
+      "new"
+    ],
+    "status": "active"
   }
 }
